@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:maplibre/maplibre.dart' hide Position;
+import 'package:maplibre/maplibre.dart' as ml hide Position;
+import 'package:maplibre_gl/maplibre_gl.dart' as mlg;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -98,7 +99,8 @@ class MapHomePage extends StatefulWidget {
 }
 
 class _MapHomePageState extends State<MapHomePage> {
-  MapController? _map;
+  mlg.MapLibreMapController? _map;
+  bool _mapStyleLoaded = false;
   bool _is3d = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
@@ -167,19 +169,70 @@ class _MapHomePageState extends State<MapHomePage> {
     return point;
   }
 
+
+  Future<void> _syncMapAnnotations() async {
+    final map = _map;
+    if (map == null || !_mapStyleLoaded || map.isDisposed) return;
+    try {
+      await map.clearLines();
+      await map.clearCircles();
+      if (_routePoints.length > 1) {
+        await map.addLine(mlg.LineOptions(
+          geometry: _routePoints
+              .map((point) => mlg.LatLng(point.latitude, point.longitude))
+              .toList(),
+          lineColor: '#08AFA0',
+          lineWidth: 6,
+        ));
+      }
+      if (_routeOrigin != null && _userPoint == null) {
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(_routeOrigin!.latitude, _routeOrigin!.longitude),
+          circleColor: '#16A34A',
+          circleRadius: 8,
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 2,
+        ));
+      }
+      if (_routeDestination != null) {
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(_routeDestination!.latitude, _routeDestination!.longitude),
+          circleColor: '#DC2626',
+          circleRadius: 9,
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 2,
+        ));
+      }
+      if (_userPoint != null) {
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(_userPoint!.latitude, _userPoint!.longitude),
+          circleColor: '#073B5C',
+          circleRadius: 8,
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 2,
+        ));
+      }
+    } catch (_) {
+      // The map style can be replaced while GPS or route updates are arriving.
+    }
+  }
+
   Future<void> _toggle3d() async {
     setState(() => _is3d = !_is3d);
     final map = _map;
     if (map == null) return;
-    final camera = map.getCamera();
+    final camera = await map.queryCameraPosition();
+    if (camera == null) return;
     await map.animateCamera(
-      CameraUpdate.position(
-        center: camera.center,
-        zoom: camera.zoom,
-        bearing: camera.bearing,
-        pitch: _is3d ? 55 : 0,
+      mlg.CameraUpdate.newCameraPosition(
+        mlg.CameraPosition(
+          target: camera.target,
+          zoom: camera.zoom,
+          bearing: camera.bearing,
+          tilt: _is3d ? 55 : 0,
+        ),
       ),
-      animation: const CameraAnimation.fly(),
+      duration: const Duration(milliseconds: 650),
     );
   }
 
@@ -187,10 +240,12 @@ class _MapHomePageState extends State<MapHomePage> {
     final point = await _currentLocation();
     if (point == null || !mounted) return;
     setState(() => _fromController.text = 'موقعي الحالي');
-    await _map?.moveCamera(CameraUpdate.position(
-      center: Geographic(lon: point.longitude, lat: point.latitude),
-      zoom: 15,
-      pitch: _is3d ? 55 : 0,
+    await _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(
+      mlg.CameraPosition(
+        target: mlg.LatLng(point.latitude, point.longitude),
+        zoom: 15,
+        tilt: _is3d ? 55 : 0,
+      ),
     ));
   }
 
@@ -267,14 +322,17 @@ class _MapHomePageState extends State<MapHomePage> {
         final centerLon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
         final zoom = _routeDistanceMeters > 100000 ? 6.5 : 11.5;
         await _map?.animateCamera(
-          CameraUpdate.position(
-            center: Geographic(lon: centerLon, lat: centerLat),
-            zoom: zoom,
-            pitch: _is3d ? 55 : 0,
+          mlg.CameraUpdate.newCameraPosition(
+            mlg.CameraPosition(
+              target: mlg.LatLng(centerLat, centerLon),
+              zoom: zoom,
+              tilt: _is3d ? 55 : 0,
+            ),
           ),
-          animation: const CameraAnimation.fly(),
+          duration: const Duration(milliseconds: 900),
         );
       }
+      await _syncMapAnnotations();
       await _speak('تم حساب المسار. $_nextInstruction');
     } catch (error) {
       _message('تعذّر حساب الطريق حالياً. تحقق من الإنترنت وحاول مرة ثانية');
@@ -321,11 +379,14 @@ class _MapHomePageState extends State<MapHomePage> {
       if (!mounted) return;
       setState(() => _userPoint = point);
       unawaited(_checkRouteDeviation(point));
-      final currentZoom = _map?.getCamera().zoom ?? 15.0;
-      _map?.moveCamera(CameraUpdate.position(
-        center: Geographic(lon: point.longitude, lat: point.latitude),
-        zoom: currentZoom < 14 ? 15 : currentZoom,
-        pitch: _is3d ? 55 : 0,
+      unawaited(_syncMapAnnotations());
+      final camera = await _map?.queryCameraPosition();
+      _map?.moveCamera(mlg.CameraUpdate.newCameraPosition(
+        mlg.CameraPosition(
+          target: mlg.LatLng(point.latitude, point.longitude),
+          zoom: (camera?.zoom ?? 15) < 14 ? 15 : (camera?.zoom ?? 15),
+          tilt: _is3d ? 55 : 0,
+        ),
       ));
     }, onError: (_) {
       _message('انقطع تتبع الموقع');
@@ -405,6 +466,7 @@ class _MapHomePageState extends State<MapHomePage> {
         _routeDistanceMeters = (route['distance'] as num).toDouble();
         _routeDurationSeconds = (route['duration'] as num).toDouble();
       });
+      await _syncMapAnnotations();
       await _speak('تم تحديث المسار بعد تغيير موقعك. $_nextInstruction');
     } catch (_) {
       // Keep the current route if the public routing service is unavailable.
@@ -534,77 +596,23 @@ class _MapHomePageState extends State<MapHomePage> {
           children: [
             if (widget.showMap)
               Positioned.fill(
-                child: SizedBox.expand(
-                  child: MapLibreMap(
-                  options: MapOptions(
-                    style: MapStyle.url(isDark
-                        ? 'https://tiles.openfreemap.org/styles/dark'
-                        : 'https://tiles.openfreemap.org/styles/liberty'),
-                    initCamera: CameraUpdate.position(
-                      center: const Geographic(lon: 43.8, lat: 33.1),
-                      zoom: 5.5,
-                      pitch: _is3d ? 55 : 0,
-                    ),
+                child: mlg.MapLibreMap(
+                  initialCameraPosition: mlg.CameraPosition(
+                    target: const mlg.LatLng(33.1, 43.8),
+                    zoom: 5.5,
+                    tilt: _is3d ? 55 : 0,
                   ),
+                  styleString: isDark
+                      ? 'https://tiles.openfreemap.org/styles/dark'
+                      : 'https://tiles.openfreemap.org/styles/liberty',
+                  compassEnabled: true,
+                  logoEnabled: false,
+                  trackCameraPosition: true,
                   onMapCreated: (controller) => _map = controller,
-                  layers: [
-                    if (_routePoints.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Feature(
-                            geometry: LineString.from(_routePoints.map(
-                              (p) => Geographic(lon: p.longitude, lat: p.latitude),
-                            )),
-                          ),
-                        ],
-                        color: const .literal(Color(0xFF08AFA0)),
-                        width: const .literal(6),
-                      ),
-                    if (_routeOrigin != null && _userPoint == null)
-                      MarkerLayer(
-                        points: [
-                          Feature(
-                            geometry: Point(Geographic(
-                              lon: _routeOrigin!.longitude,
-                              lat: _routeOrigin!.latitude,
-                            )),
-                          ),
-                        ],
-                        icon: const .iconData(Icons.trip_origin, color: Colors.green),
-                        iconAnchor: const .literal(IconAnchor.bottom),
-                      ),
-                    if (_routeDestination != null)
-                      MarkerLayer(
-                        points: [
-                          Feature(
-                            geometry: Point(Geographic(
-                              lon: _routeDestination!.longitude,
-                              lat: _routeDestination!.latitude,
-                            )),
-                          ),
-                        ],
-                        icon: const .iconData(Icons.location_on, color: Colors.red),
-                        iconAnchor: const .literal(IconAnchor.bottom),
-                      ),
-                    if (_userPoint != null)
-                      MarkerLayer(
-                        points: [
-                          Feature(
-                            geometry: Point(Geographic(
-                              lon: _userPoint!.longitude,
-                              lat: _userPoint!.latitude,
-                            )),
-                          ),
-                        ],
-                        icon: const .iconData(
-                          Icons.directions_car_filled,
-                          color: Color(0xFF073B5C),
-                        ),
-                        iconAnchor: const .literal(IconAnchor.bottom),
-                      ),
-                  ],
-                  children: const [SourceAttribution(), MapCompass()],
-                  ),
+                  onStyleLoadedCallback: () {
+                    _mapStyleLoaded = true;
+                    unawaited(_syncMapAnnotations());
+                  },
                 ),
               )
             else
@@ -835,7 +843,7 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
     _Governorate('السليمانية', 44.49007, 46.34084, 34.63386, 36.53472),
   ];
 
-  OfflineManager? _manager;
+  ml.OfflineManager? _manager;
   final Map<String, double> _progress = {};
   final Map<String, int> _regionIds = {};
   final Set<String> _downloading = {};
@@ -850,7 +858,7 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
 
   Future<void> _initOfflineManager() async {
     try {
-      final manager = await OfflineManager.createInstance();
+      final manager = await ml.OfflineManager.createInstance();
       final regions = await manager.listOfflineRegions();
       if (!mounted) {
         manager.dispose();
@@ -885,8 +893,8 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
     });
     try {
       final stream = manager.downloadRegion(
-        definition: OfflineTilePyramidRegionDefinition(
-          bounds: GeoBox(
+        definition: ml.OfflineTilePyramidRegionDefinition(
+          bounds: ml.GeoBox(
             west: governorate.west,
             east: governorate.east,
             south: governorate.south,
