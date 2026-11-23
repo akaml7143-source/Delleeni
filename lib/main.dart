@@ -637,6 +637,15 @@ class _MapHomePageState extends State<MapHomePage> {
                       onPressed: _useMyLocationAsOrigin,
                       icon: const Icon(Icons.my_location),
                     ),
+                    IconButton(
+                      tooltip: 'إدارة الخرائط بدون إنترنت',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const OfflineMapsPage(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.download_for_offline_outlined),
+                    ),
                   ],
                 ),
               ),
@@ -789,5 +798,154 @@ class _MapHomePageState extends State<MapHomePage> {
         ),
       ),
     );
+
+}
+
+class OfflineMapsPage extends StatefulWidget {
+  const OfflineMapsPage({super.key});
+
+  @override
+  State<OfflineMapsPage> createState() => _OfflineMapsPageState();
+}
+
+class _OfflineMapsPageState extends State<OfflineMapsPage> {
+  bool _offlineOnly = MapLibreNetwork.offline;
+
+  static const _governorates = <String>[
+    'بغداد',
+    'البصرة',
+    'نينوى',
+    'أربيل',
+    'النجف',
+    'كربلاء',
+    'ميسان',
+    'ذي قار',
+    'واسط',
+    'بابل',
+    'القادسية',
+    'المثنى',
+    'صلاح الدين',
+    'ديالى',
+    'الأنبار',
+    'كركوك',
+    'دهوك',
+    'السليمانية',
+  ];
+
+  void _showDownloadNotice(String name) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('خريطة $name'),
+        content: const Text(
+          'واجهة إدارة الخرائط جاهزة. تنزيل ملفات المحافظات لم يُفعّل بعد؛ '
+          'نحتاج أولاً إلى مصدر خرائط يسمح بالتنزيل دون اتصال وخدمة تستضيف '
+          'بيانات الطرق. لن نعرض المحافظة على أنها محمّلة قبل اكتمال تنزيلها.',
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('حسناً'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('إدارة الخرائط بدون إنترنت'),
+        centerTitle: true,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.map_outlined, size: 28),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'خرائط محافظات العراق',
+                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'اختر المحافظة لإدارة خريطتها. ستظهر حالة التنزيل وحجمها '
+                  'بعد ربط ملفات الخرائط الفعلية.',
+                  textDirection: TextDirection.rtl,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+            title: const Text('استخدام الخرائط المحفوظة فقط'),
+            subtitle: const Text('يمنع الخريطة من طلب بيانات جديدة من الإنترنت'),
+            value: _offlineOnly,
+            onChanged: (value) {
+              setState(() => _offlineOnly = value);
+              MapLibreNetwork.offline = value;
+            },
+          ),
+          const SizedBox(height: 10),
+          ..._governorates.map(
+            (name) => Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Theme.of(context).dividerColor),
+              ),
+              child: ListTile(
+                leading: const CircleAvatar(
+                  child: Icon(Icons.location_city_outlined),
+                ),
+                title: Text(name, textDirection: TextDirection.rtl),
+                subtitle: const Text('لم تُنزّل بعد'),
+                trailing: OutlinedButton.icon(
+                  onPressed: () => _showDownloadNotice(name),
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('تنزيل'),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'ملاحظة: وضع «المحفوظة فقط» يعرض البيانات الموجودة مسبقاً في ذاكرة '
+            'الخرائط، ولا يعني أن جميع محافظات العراق قد نُزّلت.',
+            style: TextStyle(fontSize: 12),
+            textDirection: TextDirection.rtl,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    // The setting is intentionally kept for the map screen after returning.
+    super.dispose();
   }
 }
