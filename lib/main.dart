@@ -534,7 +534,8 @@ class _MapHomePageState extends State<MapHomePage> {
           children: [
             if (widget.showMap)
               Positioned.fill(
-                child: MapLibreMap(
+                child: SizedBox.expand(
+                  child: MapLibreMap(
                   options: MapOptions(
                     style: MapStyle.url(isDark
                         ? 'https://tiles.openfreemap.org/styles/dark'
@@ -603,6 +604,7 @@ class _MapHomePageState extends State<MapHomePage> {
                       ),
                   ],
                   children: const [SourceAttribution(), MapCompass()],
+                  ),
                 ),
               )
             else
