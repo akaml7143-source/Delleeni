@@ -17,4 +17,13 @@ void main() {
     expect(find.text('اعرض الطريق'), findsOneWidget);
     expect(find.text('احچي ويا دلّيني'), findsOneWidget);
   });
+  testWidgets('offline map manager lists Iraqi governorates', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: OfflineMapsPage()));
+    expect(find.text('إدارة الخرائط بدون إنترنت'), findsOneWidget);
+    expect(find.text('خرائط محافظات العراق'), findsOneWidget);
+    expect(find.text('البصرة'), findsOneWidget);
+    expect(find.text('بغداد'), findsOneWidget);
+    expect(find.text('لم تُنزّل بعد'), findsNWidgets(18));
+  });
+
 }
