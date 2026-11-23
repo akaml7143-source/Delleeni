@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:maplibre/maplibre.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -96,7 +96,8 @@ class MapHomePage extends StatefulWidget {
 }
 
 class _MapHomePageState extends State<MapHomePage> {
-  final MapController _map = MapController();
+  MapController? _map;
+  bool _is3d = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
   final TextEditingController _toController = TextEditingController();
@@ -162,11 +163,31 @@ class _MapHomePageState extends State<MapHomePage> {
     return point;
   }
 
+  Future<void> _toggle3d() async {
+    setState(() => _is3d = !_is3d);
+    final map = _map;
+    if (map == null) return;
+    final camera = map.getCamera();
+    await map.animateCamera(
+      CameraUpdate.position(
+        center: camera.center,
+        zoom: camera.zoom,
+        bearing: camera.bearing,
+        pitch: _is3d ? 55 : 0,
+      ),
+      animation: const CameraAnimation.fly(),
+    );
+  }
+
   Future<void> _useMyLocationAsOrigin() async {
     final point = await _currentLocation();
     if (point == null || !mounted) return;
     setState(() => _fromController.text = 'موقعي الحالي');
-    _map.move(point, 15);
+    await _map?.moveCamera(CameraUpdate.position(
+      center: Geographic(lon: point.longitude, lat: point.latitude),
+      zoom: 15,
+      pitch: _is3d ? 55 : 0,
+    ));
   }
 
   Future<void> _buildRoute() async {
@@ -238,12 +259,16 @@ class _MapHomePageState extends State<MapHomePage> {
         _routeDurationSeconds = (route['duration'] as num).toDouble();
       });
       if (points.isNotEmpty) {
-        final bounds = LatLngBounds.fromPoints(points);
-        _map.fitCamera(
-          CameraFit.bounds(
-            bounds: bounds,
-            padding: const EdgeInsets.fromLTRB(38, 230, 38, 170),
+        final centerLat = points.map((p) => p.latitude).reduce((a, b) => a + b) / points.length;
+        final centerLon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
+        final zoom = _routeDistanceMeters > 100000 ? 6.5 : 11.5;
+        await _map?.animateCamera(
+          CameraUpdate.position(
+            center: Geographic(lon: centerLon, lat: centerLat),
+            zoom: zoom,
+            pitch: _is3d ? 55 : 0,
           ),
+          animation: const CameraAnimation.fly(),
         );
       }
       await _speak('تم حساب المسار. $_nextInstruction');
@@ -291,7 +316,12 @@ class _MapHomePageState extends State<MapHomePage> {
       final point = LatLng(position.latitude, position.longitude);
       if (!mounted) return;
       setState(() => _userPoint = point);
-      _map.move(point, _map.camera.zoom < 14 ? 15 : _map.camera.zoom);
+      final currentZoom = _map?.getCamera().zoom ?? 15.0;
+      _map?.moveCamera(CameraUpdate.position(
+        center: Geographic(lon: point.longitude, lat: point.latitude),
+        zoom: currentZoom < 14 ? 15 : currentZoom,
+        pitch: _is3d ? 55 : 0,
+      ));
     }, onError: (_) {
       _message('انقطع تتبع الموقع');
       if (mounted) setState(() => _tracking = false);
@@ -382,78 +412,81 @@ class _MapHomePageState extends State<MapHomePage> {
     final isDark = widget.isDark;
     final textColor = isDark ? Colors.white : const Color(0xFF172321);
     final panelColor = isDark ? const Color(0xFF202A2A) : Colors.white;
-    final markers = <Marker>[
-      if (_routeOrigin != null && _userPoint == null)
-        Marker(
-          point: _routeOrigin!,
-          width: 42,
-          height: 48,
-          child: const Icon(Icons.trip_origin, color: Colors.green, size: 32),
-        ),
-      if (_routeDestination != null)
-        Marker(
-          point: _routeDestination!,
-          width: 44,
-          height: 48,
-          child: const Icon(Icons.location_on, color: Colors.red, size: 40),
-        ),
-      if (_userPoint != null)
-        Marker(
-          point: _userPoint!,
-          width: 52,
-          height: 52,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .22), blurRadius: 8)],
-            ),
-            child: const Icon(Icons.directions_car_filled,
-                color: Color(0xFF087E70), size: 34),
-          ),
-        ),
-    ];
+
 
     return Scaffold(
       body: SafeArea(
         child: Stack(
           children: [
-            FlutterMap(
-              mapController: _map,
-              options: const MapOptions(
-                initialCenter: LatLng(33.1, 43.8),
-                initialZoom: 5.5,
-                minZoom: 4,
-                maxZoom: 18,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: isDark
-                      ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'iq.delleeni.delleeni',
-                  maxZoom: 19,
+            MapLibreMap(
+              options: MapOptions(
+                style: MapStyle.url(isDark
+                    ? 'https://tiles.openfreemap.org/styles/dark'
+                    : 'https://tiles.openfreemap.org/styles/liberty'),
+                initCamera: CameraUpdate.position(
+                  center: const Geographic(lon: 43.8, lat: 33.1),
+                  zoom: 5.5,
+                  pitch: _is3d ? 55 : 0,
                 ),
+              ),
+              onMapCreated: (controller) => _map = controller,
+              layers: [
                 if (_routePoints.isNotEmpty)
                   PolylineLayer(
                     polylines: [
-                      Polyline(
-                        points: _routePoints,
-                        strokeWidth: 7,
-                        color: const Color(0xFF1689E8),
-                        borderStrokeWidth: 2,
-                        borderColor: Colors.white,
+                      Feature(
+                        geometry: LineString.from(_routePoints.map(
+                          (p) => Geographic(lon: p.longitude, lat: p.latitude),
+                        )),
                       ),
                     ],
+                    color: const .literal(Color(0xFF1689E8)),
+                    width: const .literal(6),
                   ),
-                MarkerLayer(markers: markers),
-                const RichAttributionWidget(
-                  attributions: [
-                    TextSourceAttribution('© OpenStreetMap contributors'),
-                    TextSourceAttribution('© CARTO'),
-                  ],
-                ),
+                if (_routeOrigin != null && _userPoint == null)
+                  MarkerLayer(
+                    points: [
+                      Feature(
+                        geometry: Point(Geographic(
+                          lon: _routeOrigin!.longitude,
+                          lat: _routeOrigin!.latitude,
+                        )),
+                      ),
+                    ],
+                    icon: const .iconData(Icons.trip_origin, color: Colors.green),
+                    iconAnchor: const .literal(IconAnchor.bottom),
+                  ),
+                if (_routeDestination != null)
+                  MarkerLayer(
+                    points: [
+                      Feature(
+                        geometry: Point(Geographic(
+                          lon: _routeDestination!.longitude,
+                          lat: _routeDestination!.latitude,
+                        )),
+                      ),
+                    ],
+                    icon: const .iconData(Icons.location_on, color: Colors.red),
+                    iconAnchor: const .literal(IconAnchor.bottom),
+                  ),
+                if (_userPoint != null)
+                  MarkerLayer(
+                    points: [
+                      Feature(
+                        geometry: Point(Geographic(
+                          lon: _userPoint!.longitude,
+                          lat: _userPoint!.latitude,
+                        )),
+                      ),
+                    ],
+                    icon: const .iconData(
+                      Icons.directions_car_filled,
+                      color: Color(0xFF087E70),
+                    ),
+                    iconAnchor: const .literal(IconAnchor.bottom),
+                  ),
               ],
+              children: const [SourceAttribution(), MapCompass()],
             ),
             Positioned(
               top: 10,
@@ -479,6 +512,11 @@ class _MapHomePageState extends State<MapHomePage> {
                             tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
                             onPressed: widget.onToggleTheme,
                             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                          ),
+                          IconButton(
+                            tooltip: _is3d ? 'إيقاف العرض الثلاثي' : 'عرض ثلاثي الأبعاد',
+                            onPressed: _toggle3d,
+                            icon: Icon(_is3d ? Icons.view_in_ar : Icons.view_in_ar_outlined),
                           ),
                           IconButton(
                             tooltip: 'موقعي الحالي',
