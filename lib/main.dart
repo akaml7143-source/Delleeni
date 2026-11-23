@@ -85,11 +85,13 @@ class MapHomePage extends StatefulWidget {
   const MapHomePage({
     required this.isDark,
     required this.onToggleTheme,
+    this.showMap = true,
     super.key,
   });
 
   final bool isDark;
   final VoidCallback onToggleTheme;
+  final bool showMap;
 
   @override
   State<MapHomePage> createState() => _MapHomePageState();
@@ -418,7 +420,8 @@ class _MapHomePageState extends State<MapHomePage> {
       body: SafeArea(
         child: Stack(
           children: [
-            MapLibreMap(
+            if (widget.showMap)
+              MapLibreMap(
               options: MapOptions(
                 style: MapStyle.url(isDark
                     ? 'https://tiles.openfreemap.org/styles/dark'
@@ -487,7 +490,9 @@ class _MapHomePageState extends State<MapHomePage> {
                   ),
               ],
               children: const [SourceAttribution(), MapCompass()],
-            ),
+            )
+            else
+              const ColoredBox(color: Color(0xFFE7ECEB)),
             Positioned(
               top: 10,
               left: 12,
