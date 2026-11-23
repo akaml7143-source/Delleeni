@@ -338,8 +338,18 @@ class _MapHomePageState extends State<MapHomePage> {
     }
     if (!mounted) return;
     setState(() => _listening = true);
+    final availableLocales = await _speech.locales();
+    final arabicLocales = availableLocales
+        .where((locale) => locale.localeId.toLowerCase().startsWith('ar'))
+        .toList();
+    final iraqiLocale = arabicLocales.where(
+      (locale) => locale.localeId.toLowerCase() == 'ar_iq',
+    );
+    final selectedLocale = iraqiLocale.isNotEmpty
+        ? iraqiLocale.first.localeId
+        : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
     await _speech.listen(
-      localeId: 'ar_IQ',
+      localeId: selectedLocale,
       listenFor: const Duration(seconds: 7),
       onResult: (result) {
         if (!mounted) return;
