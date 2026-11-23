@@ -810,46 +810,139 @@ class OfflineMapsPage extends StatefulWidget {
 }
 
 class _OfflineMapsPageState extends State<OfflineMapsPage> {
-  static const _governorates = <String>[
-    'بغداد',
-    'البصرة',
-    'نينوى',
-    'أربيل',
-    'النجف',
-    'كربلاء',
-    'ميسان',
-    'ذي قار',
-    'واسط',
-    'بابل',
-    'القادسية',
-    'المثنى',
-    'صلاح الدين',
-    'ديالى',
-    'الأنبار',
-    'كركوك',
-    'دهوك',
-    'السليمانية',
+  static const _styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+
+  static const _governorates = <_Governorate>[
+    _Governorate('بغداد', 44.12523, 44.59857, 33.23018, 33.49524),
+    _Governorate('البصرة', 46.57106, 48.60723, 29.06360, 31.30036),
+    _Governorate('نينوى', 41.21511, 44.30256, 34.92292, 37.07043),
+    _Governorate('أربيل', 43.30990, 45.07183, 35.44852, 37.28441),
+    _Governorate('النجف', 42.93575, 44.77969, 29.85008, 32.35879),
+    _Governorate('كربلاء', 43.27373, 44.25045, 32.18089, 32.79774),
+    _Governorate('ميسان', 46.31622, 47.86416, 31.13834, 32.91670),
+    _Governorate('ذي قار', 45.63559, 47.13804, 30.51138, 32.01488),
+    _Governorate('واسط', 44.49278, 46.58316, 31.99315, 33.53880),
+    _Governorate('بابل', 43.90735, 45.15795, 32.13206, 33.29317),
+    _Governorate('القادسية', 44.44309, 45.78382, 31.28803, 32.45588),
+    _Governorate('المثنى', 43.81358, 46.74635, 28.99913, 31.77439),
+    _Governorate('صلاح الدين', 42.41973, 44.93676, 33.43331, 35.73833),
+    _Governorate('ديالى', 44.30044, 46.01932, 33.05781, 35.17480),
+    _Governorate('الأنبار', 38.79491, 44.26047, 30.51055, 35.13620),
+    _Governorate('كركوك', 43.22495, 44.82647, 34.74383, 35.90765),
+    _Governorate('دهوك', 42.36994, 44.09227, 36.67493, 37.33356),
+    _Governorate('السليمانية', 44.49007, 46.34084, 34.63386, 36.53472),
   ];
 
-  void _showDownloadNotice(String name) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('خريطة $name'),
-        content: const Text(
-          'واجهة إدارة الخرائط جاهزة. تنزيل ملفات المحافظات لم يُفعّل بعد؛ '
-          'نحتاج أولاً إلى مصدر خرائط يسمح بالتنزيل دون اتصال وخدمة تستضيف '
-          'بيانات الطرق. لن نعرض المحافظة على أنها محمّلة قبل اكتمال تنزيلها.',
-          textDirection: TextDirection.rtl,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('حسناً'),
+  OfflineManager? _manager;
+  final Map<String, double> _progress = {};
+  final Map<String, int> _regionIds = {};
+  final Set<String> _downloading = {};
+  bool _initializing = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initOfflineManager();
+  }
+
+  Future<void> _initOfflineManager() async {
+    try {
+      final manager = await OfflineManager.createInstance();
+      final regions = await manager.listOfflineRegions();
+      if (!mounted) {
+        manager.dispose();
+        return;
+      }
+      _manager = manager;
+      for (final region in regions) {
+        final name = region.metadata['governorate'] as String?;
+        if (name != null && _governorates.any((g) => g.name == name)) {
+          _regionIds[name] = region.id;
+          final status = await manager.getRegionStatus(regionId: region.id);
+          if (status.complete) _progress[name] = 1;
+          else if (status.progress != null) _progress[name] = status.progress!;
+        }
+      }
+      setState(() => _initializing = false);
+    } catch (error) {
+      if (mounted) setState(() {
+        _error = 'تعذّر تهيئة تنزيل الخرائط: $error';
+        _initializing = false;
+      });
+    }
+  }
+
+  Future<void> _download(_Governorate governorate) async {
+    final manager = _manager;
+    if (manager == null || _downloading.contains(governorate.name)) return;
+    setState(() {
+      _downloading.add(governorate.name);
+      _progress[governorate.name] = 0;
+      _error = null;
+    });
+    try {
+      final stream = manager.downloadRegion(
+        definition: OfflineTilePyramidRegionDefinition(
+          bounds: GeoBox(
+            west: governorate.west,
+            east: governorate.east,
+            south: governorate.south,
+            north: governorate.north,
           ),
-        ],
-      ),
-    );
+          styleUrl: _styleUrl,
+          minZoom: 5,
+          maxZoom: 10,
+          pixelRatio: 1,
+        ),
+        metadata: {'governorate': governorate.name},
+      );
+      await for (final update in stream) {
+        if (!mounted) return;
+        setState(() {
+          _progress[governorate.name] = update.progress ?? 0;
+          if (update.downloadCompleted) {
+            _regionIds[governorate.name] = update.region.id;
+            _progress[governorate.name] = 1;
+          }
+        });
+      }
+      if (mounted && _progress[governorate.name] == 1) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('اكتمل تنزيل خريطة ${governorate.name}')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'تعذّر تنزيل ${governorate.name}: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _downloading.remove(governorate.name));
+    }
+  }
+
+  Future<void> _delete(_Governorate governorate) async {
+    final manager = _manager;
+    final id = _regionIds[governorate.name];
+    if (manager == null || id == null) return;
+    try {
+      await manager.deleteRegion(regionId: id);
+      if (!mounted) return;
+      setState(() {
+        _regionIds.remove(governorate.name);
+        _progress.remove(governorate.name);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حذف خريطة ${governorate.name}')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = 'تعذّر حذف الخريطة: $error');
+    }
+  }
+
+  String _sizeLabel(double? progress) {
+    if (progress == null) return 'الحجم يتحدد أثناء التنزيل';
+    return '${(progress * 100).round()}%';
   }
 
   @override
@@ -859,90 +952,98 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
         title: const Text('إدارة الخرائط بدون إنترنت'),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: _initializing
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.map_outlined, size: 28),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'خرائط محافظات العراق',
-                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Text(
+                    'نزّل خريطة كل محافظة مرة واحدة لاستخدام بياناتها المخزنة عند انقطاع الإنترنت. '
+                    'التنزيل الأول يحتاج اتصالاً مستقراً.',
+                    textDirection: TextDirection.rtl,
+                  ),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ),
+                const SizedBox(height: 10),
+                ..._governorates.map((governorate) {
+                  final progress = _progress[governorate.name];
+                  final downloaded = _regionIds.containsKey(governorate.name) && progress == 1;
+                  final downloading = _downloading.contains(governorate.name);
+                  return Card(
+                    elevation: 0,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: Theme.of(context).dividerColor),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: CircleAvatar(
+                              child: Icon(downloaded ? Icons.offline_pin : Icons.location_city_outlined),
+                            ),
+                            title: Text(governorate.name, textDirection: TextDirection.rtl),
+                            subtitle: Text(downloaded ? 'متاحة دون إنترنت' : downloading ? 'جارٍ التنزيل • ${_sizeLabel(progress)}' : 'غير محمّلة'),
+                            trailing: downloaded
+                                ? IconButton(
+                                    tooltip: 'حذف الخريطة',
+                                    onPressed: () => _delete(governorate),
+                                    icon: const Icon(Icons.delete_outline),
+                                  )
+                                : OutlinedButton.icon(
+                                    onPressed: downloading ? null : () => _download(governorate),
+                                    icon: downloading
+                                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                        : const Icon(Icons.download, size: 18),
+                                    label: Text(downloading ? 'تنزيل...' : 'تنزيل'),
+                                  ),
+                          ),
+                          if (downloading)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                              child: LinearProgressIndicator(value: progress),
+                            ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'اختر المحافظة لإدارة خريطتها. ستظهر حالة التنزيل وحجمها '
-                  'بعد ربط ملفات الخرائط الفعلية.',
+                  );
+                }),
+                const SizedBox(height: 8),
+                const Text(
+                  'التنزيل الحالي يحفظ طبقات الخريطة ضمن مستويات تقريبية 5–10. '
+                  'بيانات الطرق والمسارات الصوتية دون إنترنت تحتاج محرك توجيه وبيانات طرق محلية منفصلة.',
+                  style: TextStyle(fontSize: 12),
                   textDirection: TextDirection.rtl,
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Text(
-              'عند اكتمال تنزيل منطقة، سيستخدمها التطبيق تلقائياً عند عدم توفر الإنترنت. '
-              'لن نفعّل وضعاً يمنع الاتصال قبل التأكد من وجود خرائط محمّلة.',
-              textDirection: TextDirection.rtl,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ..._governorates.map(
-            (name) => Card(
-              elevation: 0,
-              margin: const EdgeInsets.only(bottom: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Theme.of(context).dividerColor),
-              ),
-              child: ListTile(
-                leading: const CircleAvatar(
-                  child: Icon(Icons.location_city_outlined),
-                ),
-                title: Text(name, textDirection: TextDirection.rtl),
-                subtitle: const Text('لم تُنزّل بعد'),
-                trailing: OutlinedButton.icon(
-                  onPressed: () => _showDownloadNotice(name),
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('تنزيل'),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'ملاحظة: وضع «المحفوظة فقط» يعرض البيانات الموجودة مسبقاً في ذاكرة '
-            'الخرائط، ولا يعني أن جميع محافظات العراق قد نُزّلت.',
-            style: TextStyle(fontSize: 12),
-            textDirection: TextDirection.rtl,
-          ),
-        ],
-      ),
     );
   }
 
   @override
   void dispose() {
-    // The setting is intentionally kept for the map screen after returning.
+    _manager?.dispose();
     super.dispose();
   }
+}
+
+class _Governorate {
+  const _Governorate(this.name, this.west, this.east, this.south, this.north);
+  final String name;
+  final double west;
+  final double east;
+  final double south;
+  final double north;
 }
