@@ -533,78 +533,82 @@ class _MapHomePageState extends State<MapHomePage> {
         child: Stack(
           children: [
             if (widget.showMap)
-              MapLibreMap(
-              options: MapOptions(
-                style: MapStyle.url(isDark
-                    ? 'https://tiles.openfreemap.org/styles/dark'
-                    : 'https://tiles.openfreemap.org/styles/liberty'),
-                initCamera: CameraUpdate.position(
-                  center: const Geographic(lon: 43.8, lat: 33.1),
-                  zoom: 5.5,
-                  pitch: _is3d ? 55 : 0,
-                ),
-              ),
-              onMapCreated: (controller) => _map = controller,
-              layers: [
-                if (_routePoints.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      Feature(
-                        geometry: LineString.from(_routePoints.map(
-                          (p) => Geographic(lon: p.longitude, lat: p.latitude),
-                        )),
-                      ),
-                    ],
-                    color: const .literal(Color(0xFF08AFA0)),
-                    width: const .literal(6),
-                  ),
-                if (_routeOrigin != null && _userPoint == null)
-                  MarkerLayer(
-                    points: [
-                      Feature(
-                        geometry: Point(Geographic(
-                          lon: _routeOrigin!.longitude,
-                          lat: _routeOrigin!.latitude,
-                        )),
-                      ),
-                    ],
-                    icon: const .iconData(Icons.trip_origin, color: Colors.green),
-                    iconAnchor: const .literal(IconAnchor.bottom),
-                  ),
-                if (_routeDestination != null)
-                  MarkerLayer(
-                    points: [
-                      Feature(
-                        geometry: Point(Geographic(
-                          lon: _routeDestination!.longitude,
-                          lat: _routeDestination!.latitude,
-                        )),
-                      ),
-                    ],
-                    icon: const .iconData(Icons.location_on, color: Colors.red),
-                    iconAnchor: const .literal(IconAnchor.bottom),
-                  ),
-                if (_userPoint != null)
-                  MarkerLayer(
-                    points: [
-                      Feature(
-                        geometry: Point(Geographic(
-                          lon: _userPoint!.longitude,
-                          lat: _userPoint!.latitude,
-                        )),
-                      ),
-                    ],
-                    icon: const .iconData(
-                      Icons.directions_car_filled,
-                      color: Color(0xFF073B5C),
+              Positioned.fill(
+                child: MapLibreMap(
+                  options: MapOptions(
+                    style: MapStyle.url(isDark
+                        ? 'https://tiles.openfreemap.org/styles/dark'
+                        : 'https://tiles.openfreemap.org/styles/liberty'),
+                    initCamera: CameraUpdate.position(
+                      center: const Geographic(lon: 43.8, lat: 33.1),
+                      zoom: 5.5,
+                      pitch: _is3d ? 55 : 0,
                     ),
-                    iconAnchor: const .literal(IconAnchor.bottom),
                   ),
-              ],
-              children: const [SourceAttribution(), MapCompass()],
-            )
+                  onMapCreated: (controller) => _map = controller,
+                  layers: [
+                    if (_routePoints.isNotEmpty)
+                      PolylineLayer(
+                        polylines: [
+                          Feature(
+                            geometry: LineString.from(_routePoints.map(
+                              (p) => Geographic(lon: p.longitude, lat: p.latitude),
+                            )),
+                          ),
+                        ],
+                        color: const .literal(Color(0xFF08AFA0)),
+                        width: const .literal(6),
+                      ),
+                    if (_routeOrigin != null && _userPoint == null)
+                      MarkerLayer(
+                        points: [
+                          Feature(
+                            geometry: Point(Geographic(
+                              lon: _routeOrigin!.longitude,
+                              lat: _routeOrigin!.latitude,
+                            )),
+                          ),
+                        ],
+                        icon: const .iconData(Icons.trip_origin, color: Colors.green),
+                        iconAnchor: const .literal(IconAnchor.bottom),
+                      ),
+                    if (_routeDestination != null)
+                      MarkerLayer(
+                        points: [
+                          Feature(
+                            geometry: Point(Geographic(
+                              lon: _routeDestination!.longitude,
+                              lat: _routeDestination!.latitude,
+                            )),
+                          ),
+                        ],
+                        icon: const .iconData(Icons.location_on, color: Colors.red),
+                        iconAnchor: const .literal(IconAnchor.bottom),
+                      ),
+                    if (_userPoint != null)
+                      MarkerLayer(
+                        points: [
+                          Feature(
+                            geometry: Point(Geographic(
+                              lon: _userPoint!.longitude,
+                              lat: _userPoint!.latitude,
+                            )),
+                          ),
+                        ],
+                        icon: const .iconData(
+                          Icons.directions_car_filled,
+                          color: Color(0xFF073B5C),
+                        ),
+                        iconAnchor: const .literal(IconAnchor.bottom),
+                      ),
+                  ],
+                  children: const [SourceAttribution(), MapCompass()],
+                ),
+              )
             else
-              const ColoredBox(color: Color(0xFFE7ECEB)),
+              const Positioned.fill(
+                child: ColoredBox(color: Color(0xFFE7ECEB)),
+              ),
             Positioned(
               top: 10,
               left: 12,
