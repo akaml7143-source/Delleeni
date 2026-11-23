@@ -670,6 +670,19 @@ class _MapHomePageState extends State<MapHomePage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      TextField(
+                        controller: _fromController,
+                        textDirection: TextDirection.rtl,
+                        decoration: InputDecoration(
+                          hintText: 'من وين تنطلق؟ (الافتراضي موقعي)',
+                          prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0)),
+                          isDense: true,
+                          filled: true,
+                          fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
