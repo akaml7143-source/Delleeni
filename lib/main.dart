@@ -810,8 +810,6 @@ class OfflineMapsPage extends StatefulWidget {
 }
 
 class _OfflineMapsPageState extends State<OfflineMapsPage> {
-  bool _offlineOnly = MapLibreNetwork.offline;
-
   static const _governorates = <String>[
     'بغداد',
     'البصرة',
@@ -895,19 +893,17 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
             ),
           ),
           const SizedBox(height: 14),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Theme.of(context).dividerColor),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(14),
             ),
-            title: const Text('استخدام الخرائط المحفوظة فقط'),
-            subtitle: const Text('يمنع الخريطة من طلب بيانات جديدة من الإنترنت'),
-            value: _offlineOnly,
-            onChanged: (value) {
-              setState(() => _offlineOnly = value);
-              MapLibreNetwork.offline = value;
-            },
+            child: const Text(
+              'عند اكتمال تنزيل منطقة، سيستخدمها التطبيق تلقائياً عند عدم توفر الإنترنت. '
+              'لن نفعّل وضعاً يمنع الاتصال قبل التأكد من وجود خرائط محمّلة.',
+              textDirection: TextDirection.rtl,
+            ),
           ),
           const SizedBox(height: 10),
           ..._governorates.map(
