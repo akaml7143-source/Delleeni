@@ -800,6 +800,7 @@ class _MapHomePageState extends State<MapHomePage> {
     );
 
 }
+}
 
 class OfflineMapsPage extends StatefulWidget {
   const OfflineMapsPage({super.key});
