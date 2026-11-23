@@ -479,6 +479,35 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _answerRouteQuestion(String question) async {
     final q = question.toLowerCase();
+
+    // فهم أمر وجهة منطوق باللهجة العراقية، مثل: "وديني لكربلاء"
+    // أو "من العمارة لبغداد". يعتمد على المدن المدعومة محلياً.
+    final mentionedPlaces = iraqPlaces
+        .where((place) => q.contains(place.name.toLowerCase()))
+        .toList()
+      ..sort((a, b) => q.indexOf(a.name).compareTo(q.indexOf(b.name)));
+    final hasNavigationIntent = q.contains('وديني') ||
+        q.contains('دليني') ||
+        q.contains('أريد أروح') ||
+        q.contains('اريد اروح') ||
+        q.contains('طريق') ||
+        q.contains('إلى') ||
+        q.contains('الى') ||
+        q.contains('روح');
+    if (mentionedPlaces.length >= 2) {
+      _fromController.text = mentionedPlaces.first.name;
+      _toController.text = mentionedPlaces[1].name;
+      await _speak('تمام، أبحث لك عن الطريق من ${mentionedPlaces.first.name} إلى ${mentionedPlaces[1].name}');
+      await _buildRoute();
+      return;
+    }
+    if (mentionedPlaces.length == 1 && hasNavigationIntent) {
+      _toController.text = mentionedPlaces.first.name;
+      await _speak('تمام، أبحث لك عن الطريق إلى ${mentionedPlaces.first.name}');
+      await _buildRoute();
+      return;
+    }
+
     String answer;
     if (_routePoints.isEmpty) {
       answer = 'حدد من وين تريد تنطلق ووين وجهتك، وبعدها أگدر أساعدك بالطريق.';
