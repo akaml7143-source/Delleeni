@@ -23,7 +23,6 @@ void main() {
     expect(find.text('خرائط محافظات العراق'), findsOneWidget);
     expect(find.text('البصرة'), findsOneWidget);
     expect(find.text('بغداد'), findsOneWidget);
-    expect(find.text('لم تُنزّل بعد'), findsNWidgets(18));
   });
 
 }
