@@ -526,7 +526,7 @@ class _MapHomePageState extends State<MapHomePage> {
                         )),
                       ),
                     ],
-                    color: const .literal(Color(0xFF1689E8)),
+                    color: const .literal(Color(0xFF08AFA0)),
                     width: const .literal(6),
                   ),
                 if (_routeOrigin != null && _userPoint == null)
@@ -567,7 +567,7 @@ class _MapHomePageState extends State<MapHomePage> {
                     ],
                     icon: const .iconData(
                       Icons.directions_car_filled,
-                      color: Color(0xFF087E70),
+                      color: Color(0xFF073B5C),
                     ),
                     iconAnchor: const .literal(IconAnchor.bottom),
                   ),
@@ -579,84 +579,32 @@ class _MapHomePageState extends State<MapHomePage> {
             Positioned(
               top: 10,
               left: 12,
-              right: 12,
               child: Card(
                 color: panelColor,
-                elevation: 5,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text('دِلِّينِي', style: TextStyle(
-                              color: textColor,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            )),
-                          ),
-                          IconButton(
-                            tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
-                            onPressed: widget.onToggleTheme,
-                            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-                          ),
-                          IconButton(
-                            tooltip: _is3d ? 'إيقاف العرض الثلاثي' : 'عرض ثلاثي الأبعاد',
-                            onPressed: _toggle3d,
-                            icon: Icon(_is3d ? Icons.view_in_ar : Icons.view_in_ar_outlined),
-                          ),
-                          IconButton(
-                            tooltip: 'موقعي الحالي',
-                            onPressed: _useMyLocationAsOrigin,
-                            icon: const Icon(Icons.my_location),
-                          ),
-                        ],
-                      ),
-                      TextField(
-                        controller: _fromController,
-                        textDirection: TextDirection.rtl,
-                        decoration: const InputDecoration(
-                          labelText: 'من أين؟',
-                          prefixIcon: Icon(Icons.trip_origin, color: Colors.green),
-                          isDense: true,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _toController,
-                        textDirection: TextDirection.rtl,
-                        decoration: const InputDecoration(
-                          labelText: 'إلى أين؟ اكتب اسم المدينة',
-                          prefixIcon: Icon(Icons.location_on, color: Colors.red),
-                          isDense: true,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _loadingRoute ? null : _buildRoute,
-                          icon: _loadingRoute
-                              ? const SizedBox(
-                                  width: 18, height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.alt_route),
-                          label: const Text('اعرض الطريق'),
-                        ),
-                      ),
-                      if (_toController.text.isNotEmpty &&
-                          _findPlaces(_toController.text).isNotEmpty)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            'الوجهة: ${_findPlaces(_toController.text).first.name} — ${_findPlaces(_toController.text).first.governorate}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            textDirection: TextDirection.rtl,
-                          ),
-                        ),
-                    ],
-                  ),
+                elevation: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsetsDirectional.only(start: 12),
+                      child: Text('دِلِّينِي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                    IconButton(
+                      tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
+                      onPressed: widget.onToggleTheme,
+                      icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                    ),
+                    IconButton(
+                      tooltip: _is3d ? 'إيقاف العرض الثلاثي' : 'عرض ثلاثي الأبعاد',
+                      onPressed: _toggle3d,
+                      icon: Icon(_is3d ? Icons.view_in_ar : Icons.view_in_ar_outlined),
+                    ),
+                    IconButton(
+                      tooltip: 'موقعي الحالي',
+                      onPressed: _useMyLocationAsOrigin,
+                      icon: const Icon(Icons.my_location),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -664,7 +612,7 @@ class _MapHomePageState extends State<MapHomePage> {
               Positioned(
                 left: 12,
                 right: 12,
-                bottom: 92,
+                bottom: 224,
                 child: Card(
                   color: panelColor,
                   elevation: 5,
@@ -710,13 +658,85 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             Positioned(
-              right: 14,
-              bottom: 22,
-              child: FloatingActionButton.extended(
-                heroTag: 'voiceAssistant',
-                onPressed: _askByVoice,
-                icon: Icon(_listening ? Icons.mic : Icons.mic_none),
-                label: Text(_listening ? 'أسمعك...' : 'اسأل عن الطريق'),
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Card(
+                color: panelColor,
+                elevation: 8,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _toController,
+                              textDirection: TextDirection.rtl,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                hintText: 'وين تريد تروح؟',
+                                prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0)),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                                isDense: true,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip: 'موقعي الحالي كنقطة انطلاق',
+                            onPressed: _useMyLocationAsOrigin,
+                            icon: const Icon(Icons.my_location),
+                          ),
+                        ],
+                      ),
+                      if (_toController.text.isNotEmpty && _findPlaces(_toController.text).isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 5, right: 8),
+                            child: Text(
+                              'الوجهة: ${_findPlaces(_toController.text).first.name} — ${_findPlaces(_toController.text).first.governorate}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              textDirection: TextDirection.rtl,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _loadingRoute ? null : _buildRoute,
+                              icon: _loadingRoute
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.alt_route),
+                              label: const Text('اعرض الطريق'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _askByVoice,
+                              icon: Icon(_listening ? Icons.mic : Icons.mic_none),
+                              label: Text(_listening ? 'دا أسمعك...' : 'احچي ويا دلّيني'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_voiceText.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text('سمعتك: $_voiceText', textDirection: TextDirection.rtl, style: Theme.of(context).textTheme.bodySmall),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
