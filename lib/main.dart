@@ -120,6 +120,8 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _listening = false;
   bool _speaking = false;
   StreamSubscription<Position>? _positionSubscription;
+  DateTime? _lastRerouteAt;
+  bool _rerouting = false;
 
   List<IraqPlace> _findPlaces(String query) {
     final value = query.trim();
@@ -318,6 +320,7 @@ class _MapHomePageState extends State<MapHomePage> {
       final point = LatLng(position.latitude, position.longitude);
       if (!mounted) return;
       setState(() => _userPoint = point);
+      unawaited(_checkRouteDeviation(point));
       final currentZoom = _map?.getCamera().zoom ?? 15.0;
       _map?.moveCamera(CameraUpdate.position(
         center: Geographic(lon: point.longitude, lat: point.latitude),
@@ -328,6 +331,86 @@ class _MapHomePageState extends State<MapHomePage> {
       _message('انقطع تتبع الموقع');
       if (mounted) setState(() => _tracking = false);
     });
+  }
+
+
+  Future<void> _checkRouteDeviation(LatLng current) async {
+    final destination = _routeDestination;
+    if (!_tracking || destination == null || _routePoints.length < 2 || _rerouting) {
+      return;
+    }
+
+    // Sample the route to keep GPS updates lightweight on mobile devices.
+    var nearestDistance = double.infinity;
+    for (var i = 0; i < _routePoints.length; i += 5) {
+      final meters = const Distance().as(
+        LengthUnit.Meter,
+        current,
+        _routePoints[i],
+      );
+      if (meters < nearestDistance) nearestDistance = meters;
+    }
+    final last = _routePoints.last;
+    final lastDistance = const Distance().as(LengthUnit.Meter, current, last);
+    if (lastDistance < nearestDistance) nearestDistance = lastDistance;
+
+    // Ignore small GPS drift and avoid repeated requests on poor connections.
+    if (nearestDistance < 85) return;
+    final now = DateTime.now();
+    if (_lastRerouteAt != null &&
+        now.difference(_lastRerouteAt!) < const Duration(seconds: 30)) {
+      return;
+    }
+
+    _lastRerouteAt = now;
+    _rerouting = true;
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${current.longitude},${current.latitude};'
+        '${destination.longitude},${destination.latitude}'
+        '?overview=full&geometries=geojson&steps=true',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final routes = data['routes'] as List?;
+      if (data['code'] != 'Ok' || routes == null || routes.isEmpty) return;
+
+      final route = routes.first as Map<String, dynamic>;
+      final coordinates = route['geometry']['coordinates'] as List;
+      final updatedPoints = coordinates
+          .map((p) => LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble()))
+          .toList();
+      final updatedInstructions = <String>[];
+      for (final leg in route['legs'] as List) {
+        for (final step in (leg['steps'] as List)) {
+          final maneuver = step['maneuver'] as Map<String, dynamic>;
+          final instruction = _maneuverText(
+            maneuver['type']?.toString() ?? '',
+            maneuver['modifier']?.toString() ?? '',
+            step['name']?.toString() ?? '',
+          );
+          if (instruction.isNotEmpty) updatedInstructions.add(instruction);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _routeOrigin = current;
+        _routePoints = updatedPoints;
+        _instructions = updatedInstructions;
+        _nextInstruction = updatedInstructions.isEmpty
+            ? 'اتبع المسار الجديد على الخريطة'
+            : updatedInstructions.first;
+        _routeDistanceMeters = (route['distance'] as num).toDouble();
+        _routeDurationSeconds = (route['duration'] as num).toDouble();
+      });
+      await _speak('تم تحديث المسار بعد تغيير موقعك. $_nextInstruction');
+    } catch (_) {
+      // Keep the current route if the public routing service is unavailable.
+    } finally {
+      _rerouting = false;
+    }
   }
 
   Future<void> _stopTracking() async {
