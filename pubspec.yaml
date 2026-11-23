@@ -3,11 +3,11 @@ description: تطبيق دِلِّينِي للخرائط والدليل الج�
 publish_to: "none"
 version: 0.2.0+2
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.13.0 <4.0.0"
 dependencies:
   flutter:
     sdk: flutter
-  flutter_map: ^8.1.1
+  maplibre: ^0.4.0
   latlong2: ^0.9.1
   geolocator: ^14.0.2
   http: ^1.5.0
