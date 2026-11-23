@@ -374,7 +374,7 @@ class _MapHomePageState extends State<MapHomePage> {
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 8,
       ),
-    ).listen((position) {
+    ).listen((position) async {
       final point = LatLng(position.latitude, position.longitude);
       if (!mounted) return;
       setState(() => _userPoint = point);
