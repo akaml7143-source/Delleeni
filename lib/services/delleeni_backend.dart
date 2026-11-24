@@ -42,6 +42,27 @@ class DelleeniBackend {
   Uri _tableUri(String table, [Map<String, String>? query]) =>
       Uri.parse('$_basePath/rest/v1/$table').replace(queryParameters: query);
 
+  Future<DelleeniSession> signInAnonymously() async {
+    final response = await _client
+        .post(
+          Uri.parse('$_basePath/auth/v1/signup'),
+          headers: _headers(jsonBody: true),
+          body: jsonEncode(const {'data': {'display_name': 'زائر دِلّيني'}}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DelleeniBackendException(response.statusCode, response.body);
+    }
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final token = decoded['access_token']?.toString() ?? '';
+    final user = decoded['user'] as Map<String, dynamic>? ?? const {};
+    final userId = user['id']?.toString() ?? '';
+    if (token.isEmpty || userId.isEmpty) {
+      throw const FormatException('لم يُرجع الخادم جلسة مساهم صالحة.');
+    }
+    return DelleeniSession(userId: userId, accessToken: token);
+  }
+
   Future<List<Map<String, dynamic>>> getRows(
     String table, {
     Map<String, String>? query,
@@ -91,7 +112,7 @@ class DelleeniBackend {
     if (!isConfigured) return const [];
     final response = await _client
         .post(
-          Uri.parse('${baseUrl.replaceFirst(RegExp(r'/\$'), '')}/rest/v1/rpc/nearby_places'),
+          Uri.parse('$_basePath/rest/v1/rpc/nearby_places'),
           headers: _headers(jsonBody: true),
           body: jsonEncode({
             'p_lat': latitude,
