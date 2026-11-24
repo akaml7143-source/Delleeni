@@ -42,6 +42,118 @@ class DelleeniBackend {
   Uri _tableUri(String table, [Map<String, String>? query]) =>
       Uri.parse('$_basePath/rest/v1/$table').replace(queryParameters: query);
 
+  Future<DelleeniSession> signInWithPassword({
+    required String email,
+    required String password,
+  }) async {
+    if (email.trim().isEmpty || password.isEmpty) {
+      throw ArgumentError('أدخل البريد وكلمة المرور.');
+    }
+    final response = await _client
+        .post(
+          Uri.parse('$_basePath/auth/v1/token?grant_type=password'),
+          headers: _headers(jsonBody: true),
+          body: jsonEncode({'email': email.trim(), 'password': password}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DelleeniBackendException(response.statusCode, response.body);
+    }
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final token = decoded['access_token']?.toString() ?? '';
+    final user = decoded['user'] as Map<String, dynamic>? ?? const {};
+    final userId = user['id']?.toString() ?? '';
+    if (token.isEmpty || userId.isEmpty) {
+      throw const FormatException('لم يُرجع الخادم جلسة دخول صالحة.');
+    }
+    return DelleeniSession(userId: userId, accessToken: token);
+  }
+
+  Future<Map<String, dynamic>?> fetchMyProfile({
+    required String accessToken,
+  }) async {
+    final rows = await getRows('user_profiles', query: {
+      'select': 'id,display_name,role',
+      'limit': '1',
+    }, accessToken: accessToken);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchPendingPlaces({
+    required String accessToken,
+  }) => getRows('places', query: {
+    'select': 'id,name,category,address,city,governorate,created_at,created_by',
+    'status': 'eq.pending',
+    'order': 'created_at.asc',
+    'limit': '100',
+  }, accessToken: accessToken);
+
+  Future<List<Map<String, dynamic>>> fetchPendingReports({
+    required String accessToken,
+  }) => getRows('road_reports', query: {
+    'select': 'id,kind,details,city,governorate,created_at,expires_at,created_by',
+    'status': 'eq.pending',
+    'expires_at': 'gt.${DateTime.now().toUtc().toIso8601String()}',
+    'order': 'created_at.asc',
+    'limit': '100',
+  }, accessToken: accessToken);
+
+  Future<List<Map<String, dynamic>>> fetchPendingContributions({
+    required String accessToken,
+  }) => getRows('community_contributions', query: {
+    'select': 'id,entity_type,entity_id,action,payload,created_at,created_by',
+    'status': 'eq.pending',
+    'order': 'created_at.asc',
+    'limit': '100',
+  }, accessToken: accessToken);
+
+  Future<bool> reviewPlace({
+    required String placeId,
+    required String decision,
+    required String accessToken,
+  }) => _callRpcBoolean('review_delleeni_place', {
+    'p_place_id': placeId,
+    'p_decision': decision,
+  }, accessToken: accessToken);
+
+  Future<bool> reviewRoadReport({
+    required String reportId,
+    required String decision,
+    required String accessToken,
+  }) => _callRpcBoolean('review_delleeni_road_report', {
+    'p_report_id': reportId,
+    'p_decision': decision,
+  }, accessToken: accessToken);
+
+  Future<bool> reviewContribution({
+    required String contributionId,
+    required String decision,
+    String? reviewerNotes,
+    required String accessToken,
+  }) => _callRpcBoolean('review_delleeni_contribution', {
+    'p_contribution_id': contributionId,
+    'p_decision': decision,
+    'p_reviewer_notes': reviewerNotes,
+  }, accessToken: accessToken);
+
+  Future<bool> _callRpcBoolean(
+    String functionName,
+    Map<String, dynamic> arguments, {
+    required String accessToken,
+  }) async {
+    final response = await _client
+        .post(
+          Uri.parse('$_basePath/rest/v1/rpc/$functionName'),
+          headers: _headers(accessToken: accessToken, jsonBody: true),
+          body: jsonEncode(arguments),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DelleeniBackendException(response.statusCode, response.body);
+    }
+    return jsonDecode(response.body) == true;
+  }
+
   Future<DelleeniSession> signInAnonymously() async {
     final response = await _client
         .post(
