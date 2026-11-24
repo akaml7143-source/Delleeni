@@ -76,12 +76,27 @@ class _TripPlannerPageState extends State<TripPlannerPage> {
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final trips = data['trips'] as List? ?? [];
-      final order = data['waypoint_order'] as List? ?? [];
-      if (data['code'] != 'Ok' || trips.isEmpty || order.length != _stops.length) {
+      final waypoints = data['waypoints'] as List? ?? [];
+      if (data['code'] != 'Ok' || trips.isEmpty || waypoints.length != _stops.length) {
         throw Exception('تعذر إيجاد مسار يربط جميع المحطات.');
       }
       final trip = trips.first as Map<String, dynamic>;
-      final sorted = order.map((index) => _stops[(index as num).toInt()]).toList();
+      final orderedStops = List<_IraqiCity?>.filled(_stops.length, null);
+      for (var inputIndex = 0; inputIndex < waypoints.length; inputIndex++) {
+        final waypoint = waypoints[inputIndex] as Map<String, dynamic>;
+        if ((waypoint['trips_index'] as num?)?.toInt() != 0) {
+          throw Exception('المحطات ليست متصلة ضمن مسار واحد.');
+        }
+        final routeIndex = (waypoint['waypoint_index'] as num?)?.toInt();
+        if (routeIndex == null || routeIndex < 0 || routeIndex >= _stops.length) {
+          throw Exception('استجابة ترتيب المحطات غير مكتملة.');
+        }
+        orderedStops[routeIndex] = _stops[inputIndex];
+      }
+      if (orderedStops.any((stop) => stop == null)) {
+        throw Exception('تعذر قراءة ترتيب المحطات من محرك الطرق.');
+      }
+      final sorted = orderedStops.cast<_IraqiCity>();
       if (!mounted) return;
       setState(() {
         _ordered = sorted;
