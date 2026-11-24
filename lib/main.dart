@@ -66,6 +66,12 @@ class NearbyPlace {
   final int id; final String name; final String category; final LatLng point; final String address;
 }
 
+class RouteManeuver {
+  const RouteManeuver({required this.point, required this.instruction});
+  final LatLng point;
+  final String instruction;
+}
+
 // مراكز مدن تقريبية وليست عناوين أو حدوداً إدارية رسمية.
 const iraqPlaces = <IraqPlace>[
   IraqPlace('بغداد', 'بغداد', LatLng(33.3152, 44.3661)),
@@ -119,6 +125,9 @@ class _MapHomePageState extends State<MapHomePage> {
   LatLng? _routeDestination;
   List<LatLng> _routePoints = [];
   List<String> _instructions = [];
+  List<RouteManeuver> _routeManeuvers = [];
+  int _nextManeuverIndex = 0;
+  final Set<int> _announcedManeuvers = <int>{};
   String _nextInstruction = 'حدد نقطة الانطلاق والوجهة';
   String _voiceText = '';
   double _routeDistanceMeters = 0;
@@ -355,6 +364,7 @@ class _MapHomePageState extends State<MapHomePage> {
           .map((p) => LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble()))
           .toList();
       final steps = <String>[];
+      final maneuvers = <RouteManeuver>[];
       for (final leg in route['legs'] as List) {
         for (final step in (leg['steps'] as List)) {
           final maneuver = step['maneuver'] as Map<String, dynamic>;
@@ -363,7 +373,16 @@ class _MapHomePageState extends State<MapHomePage> {
             maneuver['modifier']?.toString() ?? '',
             step['name']?.toString() ?? '',
           );
-          if (text.isNotEmpty) steps.add(text);
+          if (text.isNotEmpty) {
+            steps.add(text);
+            final location = maneuver['location'] as List?;
+            if (location != null && location.length >= 2) {
+              maneuvers.add(RouteManeuver(
+                point: LatLng((location[1] as num).toDouble(), (location[0] as num).toDouble()),
+                instruction: text,
+              ));
+            }
+          }
         }
       }
       if (!mounted) return;
@@ -372,6 +391,9 @@ class _MapHomePageState extends State<MapHomePage> {
         _routeDestination = destination;
         _routePoints = points;
         _instructions = steps;
+        _routeManeuvers = maneuvers;
+        _nextManeuverIndex = maneuvers.length > 1 ? 1 : 0;
+        _announcedManeuvers.clear();
         _nextInstruction =
             steps.isEmpty ? 'اتبع الخط الأزرق على الخريطة' : steps.first;
         _routeDistanceMeters = (route['distance'] as num).toDouble();
@@ -438,6 +460,7 @@ class _MapHomePageState extends State<MapHomePage> {
       final point = LatLng(position.latitude, position.longitude);
       if (!mounted) return;
       setState(() => _userPoint = point);
+      unawaited(_announceUpcomingManeuver(point));
       unawaited(_checkRouteDeviation(point));
       unawaited(_syncMapAnnotations());
       final camera = await _map?.queryCameraPosition();
@@ -454,6 +477,32 @@ class _MapHomePageState extends State<MapHomePage> {
     });
   }
 
+
+
+  Future<void> _announceUpcomingManeuver(LatLng current) async {
+    if (!_tracking || _routeManeuvers.isEmpty ||
+        _nextManeuverIndex >= _routeManeuvers.length || _speaking) {
+      return;
+    }
+    final maneuver = _routeManeuvers[_nextManeuverIndex];
+    final meters = const Distance().as(LengthUnit.Meter, current, maneuver.point);
+    if (meters <= 220 && !_announcedManeuvers.contains(_nextManeuverIndex)) {
+      _announcedManeuvers.add(_nextManeuverIndex);
+      if (mounted) setState(() => _nextInstruction = maneuver.instruction);
+      final distance = (meters / 50).round() * 50;
+      await _speak(meters <= 70
+          ? maneuver.instruction
+          : 'بعد حوالي ${distance} متر، ${maneuver.instruction}');
+    }
+    if (meters <= 28) {
+      _nextManeuverIndex++;
+      if (_nextManeuverIndex < _routeManeuvers.length && mounted) {
+        setState(() => _nextInstruction = _routeManeuvers[_nextManeuverIndex].instruction);
+      } else if (mounted) {
+        setState(() => _nextInstruction = 'وصلت إلى وجهتك');
+      }
+    }
+  }
 
   Future<void> _checkRouteDeviation(LatLng current) async {
     final destination = _routeDestination;
@@ -504,6 +553,7 @@ class _MapHomePageState extends State<MapHomePage> {
           .map((p) => LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble()))
           .toList();
       final updatedInstructions = <String>[];
+      final updatedManeuvers = <RouteManeuver>[];
       for (final leg in route['legs'] as List) {
         for (final step in (leg['steps'] as List)) {
           final maneuver = step['maneuver'] as Map<String, dynamic>;
@@ -512,7 +562,16 @@ class _MapHomePageState extends State<MapHomePage> {
             maneuver['modifier']?.toString() ?? '',
             step['name']?.toString() ?? '',
           );
-          if (instruction.isNotEmpty) updatedInstructions.add(instruction);
+          if (instruction.isNotEmpty) {
+            updatedInstructions.add(instruction);
+            final location = maneuver['location'] as List?;
+            if (location != null && location.length >= 2) {
+              updatedManeuvers.add(RouteManeuver(
+                point: LatLng((location[1] as num).toDouble(), (location[0] as num).toDouble()),
+                instruction: instruction,
+              ));
+            }
+          }
         }
       }
       if (!mounted) return;
@@ -520,6 +579,9 @@ class _MapHomePageState extends State<MapHomePage> {
         _routeOrigin = current;
         _routePoints = updatedPoints;
         _instructions = updatedInstructions;
+        _routeManeuvers = updatedManeuvers;
+        _nextManeuverIndex = updatedManeuvers.length > 1 ? 1 : 0;
+        _announcedManeuvers.clear();
         _nextInstruction = updatedInstructions.isEmpty
             ? 'اتبع المسار الجديد على الخريطة'
             : updatedInstructions.first;
@@ -542,6 +604,8 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   Future<void> _speak(String text) async {
+    if (_speaking) return;
+    _speaking = true;
     try {
       try { await _tts.setLanguage('ar-IQ'); } catch (_) { await _tts.setLanguage('ar'); }
       await _tts.setSpeechRate(0.43);
@@ -549,6 +613,8 @@ class _MapHomePageState extends State<MapHomePage> {
       await _tts.speak(text);
     } catch (_) {
       _message('الصوت العربي غير متوفر في إعدادات الجهاز');
+    } finally {
+      _speaking = false;
     }
   }
 
