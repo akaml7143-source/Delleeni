@@ -322,7 +322,22 @@ class _MapHomePageState extends State<MapHomePage> {
         Expanded(child: Text(_showFavoritesOnly ? 'الأماكن المفضلة' : 'كل الأماكن القريبة', textDirection: TextDirection.rtl)),
         TextButton.icon(onPressed: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly), icon: Icon(_showFavoritesOnly ? Icons.store : Icons.star), label: Text(_showFavoritesOnly ? 'عرض الكل' : 'المفضلة')),
       ])),
-      SizedBox(height: 46, child: ListView(scrollDirection: Axis.horizontal, children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات'].map((category) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(category), selected: _nearbyCategoryFilter == category, onSelected: (_) => setState(() => _nearbyCategoryFilter = category))).toList())),
+      SizedBox(
+        height: 46,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات']
+              .map((category) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: ChoiceChip(
+                      label: Text(category),
+                      selected: _nearbyCategoryFilter == category,
+                      onSelected: (_) => setState(() => _nearbyCategoryFilter = category),
+                    ),
+                  ))
+              .toList(),
+        ),
+      ),
       Expanded(child: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).isEmpty ? Center(child: Text(_showFavoritesOnly ? 'ما عندك أماكن مطابقة للمفضلة' : 'ماكو أماكن من هذا التصنيف')) : ListView.builder(itemCount: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).length, itemBuilder: (context,index) {
         final visiblePlaces = _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).toList();
         final place = visiblePlaces[index]; final here = _userPoint ?? place.point;
