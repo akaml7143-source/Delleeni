@@ -362,7 +362,7 @@ begin
   if not coalesce(public.is_delleeni_moderator(), false) then
     raise exception 'Moderator permission required';
   end if;
-  if p_decision not in ('published', 'rejected', 'closed') then
+  if p_decision is null or p_decision not in ('published', 'rejected', 'closed') then
     raise exception 'Unsupported place decision';
   end if;
   update public.places
@@ -387,7 +387,7 @@ begin
   if not coalesce(public.is_delleeni_moderator(), false) then
     raise exception 'Moderator permission required';
   end if;
-  if p_decision not in ('verified', 'rejected') then
+  if p_decision is null or p_decision not in ('verified', 'rejected') then
     raise exception 'Unsupported road report decision';
   end if;
   update public.road_reports
@@ -414,7 +414,7 @@ begin
   if not coalesce(public.is_delleeni_moderator(), false) then
     raise exception 'Moderator permission required';
   end if;
-  if p_decision not in ('approved', 'rejected') then
+  if p_decision is null or p_decision not in ('approved', 'rejected') then
     raise exception 'Unsupported contribution decision';
   end if;
   if p_reviewer_notes is not null and pg_catalog.char_length(p_reviewer_notes) > 500 then
