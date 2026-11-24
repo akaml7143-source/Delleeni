@@ -69,10 +69,25 @@ jobs:
               https://*.supabase.co) ;;
               *) echo "::error::SUPABASE_URL must be an HTTPS Supabase project URL."; exit 1 ;;
             esac
-            if printf '%s' "$SUPABASE_ANON_KEY" | grep -Eqi 'service[_-]?role'; then
-              echo "::error::Do not use a service_role key in a mobile application."
-              exit 1
-            fi
+            python - <<'PY'
+          import base64
+          import json
+          import os
+          import sys
+
+          key = os.environ["SUPABASE_ANON_KEY"].strip()
+          if key.startswith("sb_secret_"):
+              sys.exit("::error::A Supabase secret key cannot be embedded in a mobile app.")
+          parts = key.split(".")
+          if len(parts) == 3:
+              try:
+                  payload = parts[1] + "=" * (-len(parts[1]) % 4)
+                  claims = json.loads(base64.urlsafe_b64decode(payload))
+              except Exception:
+                  sys.exit("::error::The Supabase JWT key could not be validated.")
+              if claims.get("role") == "service_role":
+                  sys.exit("::error::A service_role key cannot be embedded in a mobile app.")
+          PY
             echo "Supabase public client configuration is present."
           else
             echo "Supabase is not configured; backend-dependent features will remain disabled."
