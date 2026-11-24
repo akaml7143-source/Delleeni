@@ -116,6 +116,7 @@ class _MapHomePageState extends State<MapHomePage> {
   mlg.MapLibreMapController? _map;
   bool _mapStyleLoaded = false;
   bool _is3d = false;
+  bool _selectingOriginFromMap = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
   final TextEditingController _toController = TextEditingController();
@@ -124,6 +125,7 @@ class _MapHomePageState extends State<MapHomePage> {
 
   LatLng? _userPoint;
   LatLng? _routeOrigin;
+  LatLng? _selectedMapOrigin;
   LatLng? _routeDestination;
   List<LatLng> _routePoints = [];
   List<String> _instructions = [];
@@ -334,6 +336,16 @@ class _MapHomePageState extends State<MapHomePage> {
 
   void _selectMapDestination(mlg.LatLng coordinates) {
     final point = LatLng(coordinates.latitude, coordinates.longitude);
+    if (_selectingOriginFromMap) {
+      setState(() {
+        _selectedMapOrigin = point;
+        _fromController.text = 'نقطة من الخريطة';
+        _selectingOriginFromMap = false;
+      });
+      unawaited(_syncMapAnnotations());
+      _message('تم تحديد نقطة الانطلاق • ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}');
+      return;
+    }
     final place = NearbyPlace(
       id: -((point.latitude * 100000).round().abs() +
           (point.longitude * 100000).round().abs()),
@@ -366,7 +378,14 @@ class _MapHomePageState extends State<MapHomePage> {
           lineWidth: 6,
         ));
       }
-      if (_routeOrigin != null && _userPoint == null) {
+      if (_selectedMapOrigin != null) {
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(_selectedMapOrigin!.latitude, _selectedMapOrigin!.longitude),
+          circleColor: '#16A34A', circleRadius: 9,
+          circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2,
+        ));
+      }
+      if (_routeOrigin != null && _userPoint == null && _selectedMapOrigin == null) {
         await map.addCircle(mlg.CircleOptions(
           geometry: mlg.LatLng(_routeOrigin!.latitude, _routeOrigin!.longitude),
           circleColor: '#16A34A',
@@ -700,7 +719,9 @@ class _MapHomePageState extends State<MapHomePage> {
     setState(() => _loadingRoute = true);
     try {
       LatLng? origin;
-      if (_fromController.text.trim() == 'موقعي الحالي' ||
+      if (_selectedMapOrigin != null) {
+        origin = _selectedMapOrigin;
+      } else if (_fromController.text.trim() == 'موقعي الحالي' ||
           _fromController.text.trim().isEmpty) {
         origin = await _currentLocation();
       } else {
@@ -1244,6 +1265,7 @@ class _MapHomePageState extends State<MapHomePage> {
                       TextField(
                         controller: _fromController,
                         textDirection: TextDirection.rtl,
+                        onChanged: (_) => setState(() => _selectedMapOrigin = null),
                         decoration: InputDecoration(
                           hintText: 'من وين تنطلق؟ (الافتراضي موقعي)',
                           prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0)),
@@ -1251,6 +1273,31 @@ class _MapHomePageState extends State<MapHomePage> {
                           filled: true,
                           fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                        ),
+                      ),
+                      if (_selectedMapOrigin != null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 6, right: 8),
+                            child: Text(
+                              'انطلاق من الخريطة • ${_selectedMapOrigin!.latitude.toStringAsFixed(5)}, ${_selectedMapOrigin!.longitude.toStringAsFixed(5)}',
+                              textDirection: TextDirection.rtl,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => setState(() =>
+                              _selectingOriginFromMap = !_selectingOriginFromMap),
+                          icon: Icon(_selectingOriginFromMap
+                              ? Icons.touch_app
+                              : Icons.trip_origin),
+                          label: Text(_selectingOriginFromMap
+                              ? 'اضغط مطولاً على الخريطة لتحديد الانطلاق...'
+                              : 'تحديد نقطة الانطلاق من الخريطة'),
                         ),
                       ),
                       const SizedBox(height: 8),
