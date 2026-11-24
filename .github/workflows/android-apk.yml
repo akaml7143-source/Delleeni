@@ -51,8 +51,40 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Run tests
         run: flutter test
+      - name: Validate optional Supabase build configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_ANON_KEY is missing while SUPABASE_URL is set."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_URL is missing while SUPABASE_ANON_KEY is set."
+            exit 1
+          fi
+          if [ -n "$SUPABASE_URL" ]; then
+            case "$SUPABASE_URL" in
+              https://*.supabase.co) ;;
+              *) echo "::error::SUPABASE_URL must be an HTTPS Supabase project URL."; exit 1 ;;
+            esac
+            if printf '%s' "$SUPABASE_ANON_KEY" | grep -Eqi 'service[_-]?role'; then
+              echo "::error::Do not use a service_role key in a mobile application."
+              exit 1
+            fi
+            echo "Supabase public client configuration is present."
+          else
+            echo "Supabase is not configured; backend-dependent features will remain disabled."
+          fi
       - name: Build release APK
-        run: flutter build apk --release
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
