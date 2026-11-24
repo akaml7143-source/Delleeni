@@ -332,6 +332,25 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
 
+  void _selectMapDestination(mlg.LatLng coordinates) {
+    final point = LatLng(coordinates.latitude, coordinates.longitude);
+    final place = NearbyPlace(
+      id: -((point.latitude * 100000).round().abs() +
+          (point.longitude * 100000).round().abs()),
+      name: 'نقطة من الخريطة',
+      category: 'وجهة محددة',
+      point: point,
+      address: 'إحداثيات: ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}',
+    );
+    setState(() {
+      _selectedNearby = place;
+      _toController.text = place.name;
+      _routeDestination = point;
+    });
+    unawaited(_syncMapAnnotations());
+    _message('تم تحديد الوجهة على الخريطة • ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}');
+  }
+
   Future<void> _syncMapAnnotations() async {
     final map = _map;
     if (map == null || !_mapStyleLoaded || map.isDisposed) return;
@@ -1102,6 +1121,8 @@ class _MapHomePageState extends State<MapHomePage> {
                   logoEnabled: false,
                   trackCameraPosition: true,
                   onMapCreated: (controller) => _map = controller,
+                  onMapLongClick: (screenPoint, coordinates) =>
+                      _selectMapDestination(coordinates),
                   onStyleLoadedCallback: () {
                     _mapStyleLoaded = true;
                     unawaited(_syncMapAnnotations());
@@ -1258,6 +1279,19 @@ class _MapHomePageState extends State<MapHomePage> {
                           ),
                         ],
                       ),
+                      if (_selectedNearby != null &&
+                          _selectedNearby!.category == 'وجهة محددة')
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 6, right: 8),
+                            child: Text(
+                              'وجهة الخريطة • ${_selectedNearby!.point.latitude.toStringAsFixed(5)}, ${_selectedNearby!.point.longitude.toStringAsFixed(5)}',
+                              textDirection: TextDirection.rtl,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ),
                       if (_recentDestinations.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
