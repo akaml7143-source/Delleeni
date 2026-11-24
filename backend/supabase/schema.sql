@@ -128,6 +128,21 @@ alter table public.community_contributions enable row level security;
 
 create policy "profiles read own or moderators" on public.user_profiles
 for select to authenticated using (id = auth.uid() or public.is_delleeni_moderator());
+create or replace function public.prevent_profile_role_escalation()
+returns trigger language plpgsql security definer set search_path = public
+as $
+begin
+  if new.role is distinct from old.role and not public.is_delleeni_moderator() then
+    raise exception 'Only moderators can change account roles';
+  end if;
+  return new;
+end;
+$;
+drop trigger if exists protect_user_profile_role on public.user_profiles;
+create trigger protect_user_profile_role
+before update on public.user_profiles
+for each row execute function public.prevent_profile_role_escalation();
+
 create policy "profiles update own display" on public.user_profiles
 for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 
