@@ -259,14 +259,14 @@ returns table (
 language sql stable security invoker set search_path = ''
 as $$
   select p.id, p.name, p.category, p.address, p.city, p.governorate,
-    st_y(p.location::geometry), st_x(p.location::geometry),
-    st_distance(p.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography)
+    extensions.st_y(p.location::extensions.geometry), extensions.st_x(p.location::extensions.geometry),
+    extensions.st_distance(p.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   from public.places p
   where p.status = 'published'
-    and st_dwithin(p.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography,
+    and extensions.st_dwithin(p.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography,
       greatest(100, least(coalesce(p_radius_m,5000), 20000)))
     and (p_category is null or p.category = p_category)
-  order by p.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
+  order by extensions.st_distance(p.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   limit 200;
 $$;
 
@@ -285,16 +285,16 @@ returns table (
 language sql stable security invoker set search_path = ''
 as $$
   select r.id, r.kind, r.details, r.city, r.governorate,
-    st_y(r.location::geometry), st_x(r.location::geometry),
+    extensions.st_y(r.location::extensions.geometry), extensions.st_x(r.location::extensions.geometry),
     r.created_at, r.expires_at,
-    st_distance(r.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography)
+    extensions.st_distance(r.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   from public.road_reports r
   where r.status = 'verified'
     and r.expires_at > now()
-    and st_dwithin(r.location,
-      st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography,
+    and extensions.st_dwithin(r.location,
+      extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography,
       greatest(100, least(coalesce(p_radius_m,5000), 20000)))
-  order by r.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
+  order by extensions.st_distance(r.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   limit 100;
 $$;
 
@@ -310,15 +310,15 @@ returns table (
 language sql stable security invoker set search_path = ''
 as $$
   select a.id, a.kind, a.notes,
-    st_y(a.location::geometry), st_x(a.location::geometry),
+    extensions.st_y(a.location::extensions.geometry), extensions.st_x(a.location::extensions.geometry),
     a.verified,
-    st_distance(a.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography)
+    extensions.st_distance(a.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   from public.accessibility_features a
   where a.status = 'published' and a.verified
-    and st_dwithin(a.location,
-      st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography,
+    and extensions.st_dwithin(a.location,
+      extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography,
       greatest(100, least(coalesce(p_radius_m,3000), 10000)))
-  order by a.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
+  order by extensions.st_distance(a.location, extensions.st_setsrid(extensions.st_makepoint(p_lon, p_lat),4326)::extensions.geography)
   limit 100;
 $$;
 
