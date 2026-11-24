@@ -135,12 +135,10 @@ class DelleeniBackend {
     required double latitude,
     required double longitude,
     int radiusMeters = 5000,
-  }) => getRows('road_reports', query: {
-    'select': 'id,kind,details,city,governorate,created_at,expires_at',
-    'status': 'eq.verified',
-    'expires_at': 'gt.${DateTime.now().toUtc().toIso8601String()}',
-    'order': 'created_at.desc',
-    'limit': '100',
+  }) => _callRpc('nearby_road_reports', {
+    'p_lat': latitude,
+    'p_lon': longitude,
+    'p_radius_m': radiusMeters.clamp(100, 20000),
   });
 
   Future<List<Map<String, dynamic>>> fetchTransitRoutes({required String city}) =>
@@ -155,12 +153,41 @@ class DelleeniBackend {
   Future<List<Map<String, dynamic>>> fetchAccessibilityFeatures({
     required double latitude,
     required double longitude,
-  }) => getRows('accessibility_features', query: {
-    'select': 'id,kind,notes,verified,created_at',
-    'status': 'eq.published',
-    'verified': 'eq.true',
-    'limit': '100',
+    int radiusMeters = 3000,
+  }) => _callRpc('nearby_accessibility_features', {
+    'p_lat': latitude,
+    'p_lon': longitude,
+    'p_radius_m': radiusMeters.clamp(100, 10000),
   });
+
+  Future<List<Map<String, dynamic>>> fetchTransitStops({required String routeId}) =>
+      getRows('transit_stops', query: {
+        'select': 'id,name,sequence_no',
+        'route_id': 'eq.$routeId',
+        'order': 'sequence_no.asc',
+        'limit': '100',
+      });
+
+  Future<List<Map<String, dynamic>>> _callRpc(
+    String functionName,
+    Map<String, dynamic> arguments,
+  ) async {
+    if (!isConfigured) return const [];
+    final response = await _client
+        .post(
+          Uri.parse('$_basePath/rest/v1/rpc/$functionName'),
+          headers: _headers(jsonBody: true),
+          body: jsonEncode(arguments),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DelleeniBackendException(response.statusCode, response.body);
+    }
+    final decoded = jsonDecode(response.body);
+    return decoded is List
+        ? decoded.whereType<Map<String, dynamic>>().toList(growable: false)
+        : const [];
+  }
 
   void close() => _client.close();
 }
