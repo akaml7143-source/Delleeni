@@ -238,6 +238,57 @@ as $$
 $$;
 
 
+
+create or replace function public.nearby_road_reports(
+  p_lat double precision,
+  p_lon double precision,
+  p_radius_m integer default 5000
+)
+returns table (
+  id uuid, kind text, details text, city text, governorate text,
+  latitude double precision, longitude double precision,
+  created_at timestamptz, expires_at timestamptz, distance_m double precision
+)
+language sql stable security invoker set search_path = public, extensions
+as $
+  select r.id, r.kind, r.details, r.city, r.governorate,
+    st_y(r.location::geometry), st_x(r.location::geometry),
+    r.created_at, r.expires_at,
+    st_distance(r.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography)
+  from public.road_reports r
+  where r.status = 'verified'
+    and r.expires_at > now()
+    and st_dwithin(r.location,
+      st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography,
+      greatest(100, least(coalesce(p_radius_m,5000), 20000)))
+  order by r.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
+  limit 100;
+$;
+
+create or replace function public.nearby_accessibility_features(
+  p_lat double precision,
+  p_lon double precision,
+  p_radius_m integer default 3000
+)
+returns table (
+  id uuid, kind text, notes text, latitude double precision,
+  longitude double precision, verified boolean, distance_m double precision
+)
+language sql stable security invoker set search_path = public, extensions
+as $
+  select a.id, a.kind, a.notes,
+    st_y(a.location::geometry), st_x(a.location::geometry),
+    a.verified,
+    st_distance(a.location, st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography)
+  from public.accessibility_features a
+  where a.status = 'published' and a.verified
+    and st_dwithin(a.location,
+      st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography,
+      greatest(100, least(coalesce(p_radius_m,3000), 10000)))
+  order by a.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
+  limit 100;
+$;
+
 -- Explicit PostgREST grants: RLS still controls which rows and writes are allowed.
 grant usage on schema public, extensions to anon, authenticated;
 grant select on public.places to anon, authenticated;
@@ -250,7 +301,9 @@ grant select on public.accessibility_features to anon, authenticated;
 grant insert, update on public.accessibility_features to authenticated;
 grant select, insert, update on public.community_contributions to authenticated;
 grant select, update on public.user_profiles to authenticated;
-grant execute on function public.nearby_places(double precision, double precision, integer, text)
+grant execute on function public.nearby_places(double precision, double precision, integer, text),
+  public.nearby_road_reports(double precision, double precision, integer),
+  public.nearby_accessibility_features(double precision, double precision, integer)
   to anon, authenticated;
 
 -- Do not store continuous user-location histories. Keep reports coarse and time-limited.
