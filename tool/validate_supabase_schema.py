@@ -51,6 +51,7 @@ required_functions = {
     "nearby_accessibility_features",
     "guard_delleeni_road_report",
     "is_delleeni_moderator",
+    "prevent_profile_role_escalation",
     "review_delleeni_place",
     "review_delleeni_road_report",
     "review_delleeni_contribution",
@@ -63,6 +64,14 @@ missing_functions = sorted(required_functions - found_functions)
 if missing_functions:
     raise SystemExit("Required functions missing: " + ", ".join(missing_functions))
 
+
+
+if 'new.role is distinct from old.role' not in sql.lower():
+    raise SystemExit('Profile role-escalation trigger guard is missing')
+if not re.search(r'revoke\\s+update\\s+on\\s+public\\.user_profiles\\s+from\\s+authenticated', sql, flags=re.IGNORECASE):
+    raise SystemExit('Authenticated users must not have table-wide profile update rights')
+if not re.search(r'grant\\s+update\\s*\\(\\s*display_name\\s*\\)\\s+on\\s+public\\.user_profiles\\s+to\\s+authenticated', sql, flags=re.IGNORECASE):
+    raise SystemExit('Authenticated users should only update their display name')
 
 for privileged_name in ('review_delleeni_place', 'review_delleeni_road_report', 'review_delleeni_contribution'):
     pattern = rf'revoke\s+all\s+on\s+function\s+public\.{privileged_name}\b[^;]*from\s+public\s*,\s*anon'
