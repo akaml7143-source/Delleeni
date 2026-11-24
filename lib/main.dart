@@ -274,7 +274,7 @@ class _MapHomePageState extends State<MapHomePage> {
         return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('\${place.category} • \${km.toStringAsFixed(1)} كم\${place.address.isEmpty ? '' : ' • \${place.address}'}',textDirection: TextDirection.rtl),trailing: const Icon(Icons.directions),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
       })),
       const Padding(padding: EdgeInsets.all(12),child: Text('المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة.',textDirection: TextDirection.rtl)),
-    ])))));
+    ]))) );
   }
 
   Future<void> _toggle3d() async {
