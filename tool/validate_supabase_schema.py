@@ -51,6 +51,9 @@ required_functions = {
     "nearby_accessibility_features",
     "guard_delleeni_road_report",
     "is_delleeni_moderator",
+    "review_delleeni_place",
+    "review_delleeni_road_report",
+    "review_delleeni_contribution",
 }
 found_functions = set(re.findall(
     r"create\s+or\s+replace\s+function\s+public\.([a-z_][a-z0-9_]*)",
@@ -59,6 +62,12 @@ found_functions = set(re.findall(
 missing_functions = sorted(required_functions - found_functions)
 if missing_functions:
     raise SystemExit("Required functions missing: " + ", ".join(missing_functions))
+
+
+for privileged_name in ('review_delleeni_place', 'review_delleeni_road_report', 'review_delleeni_contribution'):
+    pattern = rf'revoke\s+all\s+on\s+function\s+public\.{privileged_name}\b[^;]*from\s+public\s*,\s*anon'
+    if not re.search(pattern, sql, flags=re.IGNORECASE):
+        raise SystemExit(f'Privileged function is not revoked from PUBLIC and anon: {privileged_name}')
 
 print(
     f"Supabase SQL parsed successfully: {len(statements)} statements, "
