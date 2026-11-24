@@ -181,7 +181,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 begin
   if new.created_by is null or new.created_by <> auth.uid() then
     raise exception 'A signed-in contributor is required';
@@ -196,7 +196,7 @@ begin
   new.status := 'pending';
   return new;
 end;
-$;
+$$;
 
 drop trigger if exists guard_delleeni_road_report_insert on public.road_reports;
 create trigger guard_delleeni_road_report_insert
@@ -279,7 +279,7 @@ returns table (
   created_at timestamptz, expires_at timestamptz, distance_m double precision
 )
 language sql stable security invoker set search_path = public, extensions
-as $
+as $$
   select r.id, r.kind, r.details, r.city, r.governorate,
     st_y(r.location::geometry), st_x(r.location::geometry),
     r.created_at, r.expires_at,
@@ -292,7 +292,7 @@ as $
       greatest(100, least(coalesce(p_radius_m,5000), 20000)))
   order by r.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
   limit 100;
-$;
+$$;
 
 create or replace function public.nearby_accessibility_features(
   p_lat double precision,
@@ -304,7 +304,7 @@ returns table (
   longitude double precision, verified boolean, distance_m double precision
 )
 language sql stable security invoker set search_path = public, extensions
-as $
+as $$
   select a.id, a.kind, a.notes,
     st_y(a.location::geometry), st_x(a.location::geometry),
     a.verified,
@@ -316,7 +316,7 @@ as $
       greatest(100, least(coalesce(p_radius_m,3000), 10000)))
   order by a.location <-> st_setsrid(st_makepoint(p_lon, p_lat),4326)::geography
   limit 100;
-$;
+$$;
 
 -- Explicit PostgREST grants: RLS still controls which rows and writes are allowed.
 grant usage on schema public, extensions to anon, authenticated;
