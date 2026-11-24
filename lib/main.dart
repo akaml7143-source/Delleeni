@@ -60,6 +60,12 @@ class IraqPlace {
   final LatLng point;
 }
 
+
+class NearbyPlace {
+  const NearbyPlace({required this.id, required this.name, required this.category, required this.point, this.address = ''});
+  final int id; final String name; final String category; final LatLng point; final String address;
+}
+
 // مراكز مدن تقريبية وليست عناوين أو حدوداً إدارية رسمية.
 const iraqPlaces = <IraqPlace>[
   IraqPlace('بغداد', 'بغداد', LatLng(33.3152, 44.3661)),
@@ -124,6 +130,9 @@ class _MapHomePageState extends State<MapHomePage> {
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _lastRerouteAt;
   bool _rerouting = false;
+  bool _loadingNearby = false;
+  List<NearbyPlace> _nearbyPlaces = [];
+  NearbyPlace? _selectedNearby;
 
   List<IraqPlace> _findPlaces(String query) {
     final value = query.trim();
@@ -203,6 +212,9 @@ class _MapHomePageState extends State<MapHomePage> {
           circleStrokeWidth: 2,
         ));
       }
+      for (final place in _nearbyPlaces) {
+        await map.addCircle(mlg.CircleOptions(geometry: mlg.LatLng(place.point.latitude, place.point.longitude), circleColor: '#E9A23B', circleRadius: 5, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5));
+      }
       if (_userPoint != null) {
         await map.addCircle(mlg.CircleOptions(
           geometry: mlg.LatLng(_userPoint!.latitude, _userPoint!.longitude),
@@ -215,6 +227,54 @@ class _MapHomePageState extends State<MapHomePage> {
     } catch (_) {
       // The map style can be replaced while GPS or route updates are arriving.
     }
+  }
+
+  Future<void> _loadNearbyPlaces() async {
+    if (_loadingNearby) return;
+    final center = _userPoint ?? await _currentLocation();
+    if (center == null) return;
+    setState(() => _loadingNearby = true);
+    try {
+      const radius = 4000;
+      final query = '[out:json][timeout:25];('
+          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|hospital|clinic|pharmacy|fuel|bank|atm|school|police"];'
+          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["shop"];'
+          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["healthcare"];'
+          ');out center 80;';
+      final response = await http.post(Uri.parse('https://overpass-api.de/api/interpreter'), body: {'data': query}).timeout(const Duration(seconds: 35));
+      if (response.statusCode != 200) throw Exception('places unavailable');
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final elements = data['elements'] as List? ?? [];
+      final places = <NearbyPlace>[];
+      for (final item in elements) {
+        final e = item as Map<String, dynamic>;
+        final tags = e['tags'] as Map<String, dynamic>? ?? {};
+        final lat = e['lat'] ?? (e['center'] as Map?)?['lat'];
+        final lon = e['lon'] ?? (e['center'] as Map?)?['lon'];
+        if (lat is! num || lon is! num) continue;
+        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? 'مكان').toString();
+        final address = [tags['addr:street'], tags['addr:suburb'], tags['addr:city']].where((v) => v != null && v.toString().isNotEmpty).join('، ');
+        places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? 'مكان غير مسمى').toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
+      }
+      places.sort((a,b) => Geolocator.distanceBetween(center.latitude, center.longitude, a.point.latitude, a.point.longitude).compareTo(Geolocator.distanceBetween(center.latitude, center.longitude, b.point.latitude, b.point.longitude)));
+      if (!mounted) return;
+      setState(() => _nearbyPlaces = places.take(80).toList());
+      await _syncMapAnnotations();
+      _showNearbyPlaces();
+    } catch (_) { _message('تعذّر تحميل الأماكن القريبة. تحقق من الإنترنت وحاول لاحقاً'); }
+    finally { if (mounted) setState(() => _loadingNearby = false); }
+  }
+
+  void _showNearbyPlaces() {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: widget.isDark ? const Color(0xFF202A2A) : Colors.white, builder: (sheetContext) => SafeArea(child: SizedBox(height: MediaQuery.of(sheetContext).size.height * 0.65, child: Column(children: [
+      const Padding(padding: EdgeInsets.all(16), child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+      Expanded(child: _nearbyPlaces.isEmpty ? const Center(child: Text('ماكو أماكن مسجلة ضمن المنطقة')) : ListView.builder(itemCount: _nearbyPlaces.length, itemBuilder: (context,index) {
+        final place = _nearbyPlaces[index]; final here = _userPoint ?? place.point;
+        final km = Geolocator.distanceBetween(here.latitude,here.longitude,place.point.latitude,place.point.longitude)/1000;
+        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('\${place.category} • \${km.toStringAsFixed(1)} كم\${place.address.isEmpty ? '' : ' • \${place.address}'}',textDirection: TextDirection.rtl),trailing: const Icon(Icons.directions),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
+      })),
+      const Padding(padding: EdgeInsets.all(12),child: Text('المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة.',textDirection: TextDirection.rtl)),
+    ])))));
   }
 
   Future<void> _toggle3d() async {
@@ -267,11 +327,11 @@ class _MapHomePageState extends State<MapHomePage> {
         _message('حدد نقطة انطلاق معروفة أو اختر موقعي الحالي');
         return;
       }
-      if (destinations.isEmpty) {
-        _message('اكتب اسم مدينة عراقية من القائمة المتاحة');
+      if (destinations.isEmpty && _selectedNearby == null) {
+        _message('اختَر وجهة من الأماكن القريبة أو اكتب اسم مدينة');
         return;
       }
-      final destination = destinations.first.point;
+      final destination = _selectedNearby?.point ?? destinations.first.point;
 
       // خادم OSRM العام للتجربة فقط؛ لا يضمن الخدمة أو الاستمرارية للإنتاج.
       final uri = Uri.parse(
@@ -344,16 +404,16 @@ class _MapHomePageState extends State<MapHomePage> {
   String _maneuverText(String type, String modifier, String road) {
     final roadText = road.isEmpty ? 'الطريق' : 'باتجاه $road';
     if (type == 'arrive') return 'وصلت إلى وجهتك';
-    if (type == 'depart') return 'ابدأ السير $roadText';
-    if (modifier.contains('left')) return 'بعد قليل انعطف يسار $roadText';
-    if (modifier.contains('right')) return 'بعد قليل انعطف يمين $roadText';
+    if (type == 'depart') return 'يلا انطلق $roadText';
+    if (modifier.contains('left')) return 'بعد شوية خذ يسار $roadText';
+    if (modifier.contains('right')) return 'بعد شوية خذ يمين $roadText';
     if (modifier == 'uturn') return 'استدر وارجع بالاتجاه المعاكس';
     if (type == 'roundabout' || type == 'rotary') {
       return 'ادخل الدوار، $roadText';
     }
     if (type == 'merge') return 'اندَمج مع المسار $roadText';
     if (type == 'fork') return 'خذ التفرع $roadText';
-    if (type == 'new name' || type == 'continue') return 'استمر $roadText';
+    if (type == 'new name' || type == 'continue') return 'كمّل دغري $roadText';
     return roadText;
   }
 
@@ -483,9 +543,9 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _speak(String text) async {
     try {
-      await _tts.setLanguage('ar');
-      await _tts.setSpeechRate(0.46);
-      await _tts.setPitch(1.0);
+      try { await _tts.setLanguage('ar-IQ'); } catch (_) { await _tts.setLanguage('ar'); }
+      await _tts.setSpeechRate(0.43);
+      await _tts.setPitch(1.02);
       await _tts.speak(text);
     } catch (_) {
       _message('الصوت العربي غير متوفر في إعدادات الجهاز');
@@ -643,6 +703,11 @@ class _MapHomePageState extends State<MapHomePage> {
                       icon: Icon(_is3d ? Icons.view_in_ar : Icons.view_in_ar_outlined),
                     ),
                     IconButton(
+                      tooltip: 'الأماكن القريبة',
+                      onPressed: _loadingNearby ? null : _loadNearbyPlaces,
+                      icon: _loadingNearby ? const SizedBox(width: 20,height: 20,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.store_mall_directory_outlined),
+                    ),
+                    IconButton(
                       tooltip: 'موقعي الحالي',
                       onPressed: _useMyLocationAsOrigin,
                       icon: const Icon(Icons.my_location),
@@ -741,7 +806,7 @@ class _MapHomePageState extends State<MapHomePage> {
                             child: TextField(
                               controller: _toController,
                               textDirection: TextDirection.rtl,
-                              onChanged: (_) => setState(() {}),
+                              onChanged: (_) => setState(() => _selectedNearby = null),
                               decoration: InputDecoration(
                                 hintText: 'وين تريد تروح؟',
                                 prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0)),
