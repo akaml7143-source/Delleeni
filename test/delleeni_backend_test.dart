@@ -25,7 +25,7 @@ void main() {
     final client = MockClient((request) async {
       expect(request.url.toString(), 'https://demo.supabase.co/auth/v1/signup');
       expect(request.headers['apikey'], 'public-key');
-      expect(request.headers['authorization'], 'Bearer public-key');
+      expect(request.headers.entries.firstWhere((entry) => entry.key.toLowerCase() == 'authorization').value, 'Bearer public-key');
       return http.Response(jsonEncode({
         'access_token': 'test-access-token',
         'user': {'id': 'test-user-id'},
