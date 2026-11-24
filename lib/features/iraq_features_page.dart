@@ -21,6 +21,8 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
   List<Map<String, dynamic>> _reports = [];
   List<Map<String, dynamic>> _routes = [];
   List<Map<String, dynamic>> _accessibility = [];
+  List<Map<String, dynamic>> _routeStops = [];
+  String? _selectedRouteName;
 
   static const _governorates = [
     'بغداد','البصرة','نينوى','أربيل','النجف','كربلاء','ميسان','ذي قار',
@@ -74,13 +76,13 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
     }
     setState(() => _busy = true);
     try {
-      final rows = await _backend.getRows('road_reports', query: {
-        'select': 'id,kind,details,city,governorate,created_at,expires_at',
-        'status': 'eq.verified',
-        'expires_at': 'gt.${DateTime.now().toUtc().toIso8601String()}',
-        'order': 'created_at.desc',
-        'limit': '100',
-      });
+      final position = await _getPosition();
+      if (position == null) return;
+      final rows = await _backend.fetchNearbyReports(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        radiusMeters: 5000,
+      );
       if (mounted) setState(() => _reports = rows);
     } catch (error) {
       if (mounted) setState(() => _error = 'تعذر تحميل البلاغات: $error');
@@ -115,9 +117,12 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
     }
     setState(() => _busy = true);
     try {
+      final position = await _getPosition();
+      if (position == null) return;
       final rows = await _backend.fetchAccessibilityFeatures(
-        latitude: 0,
-        longitude: 0,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        radiusMeters: 3000,
       );
       if (mounted) setState(() => _accessibility = rows);
       if (rows.isEmpty) _showMessage('لا توجد نقاط وصول ميسر موثقة منشورة بعد.');
@@ -390,7 +395,7 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
                 description: 'ازدحام أو إغلاق أو صيانة أو خطر؛ البلاغات الجديدة قيد المراجعة.',
                 status: _configured ? 'متاح بعد إعداد الخادم' : 'يلزم إعداد الخادم',
                 onTap: _submitRoadReport),
-              _featureCard(icon: Icons.refresh, title: 'عرض البلاغات المؤكدة',
+              _featureCard(icon: Icons.refresh, title: 'عرض البلاغات المؤكدة القريبة',
                 description: 'لا تظهر إلا البلاغات المنشورة وغير المنتهية.',
                 status: '${_reports.length} بلاغ',
                 onTap: _loadReports),
@@ -410,9 +415,35 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
                 title: Text(item['name']?.toString() ?? 'خط نقل', textDirection: TextDirection.rtl),
                 subtitle: Text('${item['city'] ?? ''} • ${item['fare_min_iqd'] ?? '؟'} - ${item['fare_max_iqd'] ?? '؟'} د.ع',
                   textDirection: TextDirection.rtl),
+                onTap: () async {
+                  final routeId = item['id']?.toString();
+                  if (routeId == null) return;
+                  setState(() { _busy = true; _selectedRouteName = item['name']?.toString(); });
+                  try {
+                    final stops = await _backend.fetchTransitStops(routeId: routeId);
+                    if (mounted) setState(() => _routeStops = stops);
+                    if (stops.isEmpty) _showMessage('لا توجد محطات منشورة لهذا الخط بعد.');
+                  } catch (error) {
+                    _showMessage('تعذر تحميل محطات الخط: $error');
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
               )),
+              if (_selectedRouteName != null) ...[
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text('محطات خط $_selectedRouteName', textDirection: TextDirection.rtl),
+                ),
+                ..._routeStops.map((stop) => ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.place_outlined),
+                  title: Text(stop['name']?.toString() ?? 'محطة', textDirection: TextDirection.rtl),
+                  subtitle: Text('التسلسل: ${stop['sequence_no'] ?? ''}', textDirection: TextDirection.rtl),
+                )),
+              ],
               _featureCard(icon: Icons.accessible_forward, title: 'مسارات الوصول الميسر',
-                description: 'عرض الخصائص المنشورة والموثقة فقط؛ لا نفترض أن الطريق مهيأ دون دليل.',
+                description: 'عرض النقاط المنشورة والموثقة ضمن 3 كم من موقعك؛ لا نفترض أن الطريق مهيأ دون دليل.',
                 status: '${_accessibility.length} نقطة',
                 onTap: _loadAccessibility),
               if (_accessibility.isNotEmpty) ..._accessibility.map((item) => ListTile(
