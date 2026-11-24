@@ -237,4 +237,19 @@ as $$
   limit 200;
 $$;
 
--- Do not store continuous user-location histories. Keep reports coarse and time-limited.
+
+-- Explicit PostgREST grants: RLS still controls which rows and writes are allowed.
+grant usage on schema public, extensions to anon, authenticated;
+grant select on public.places to anon, authenticated;
+grant insert, select, update on public.places to authenticated;
+grant select on public.road_reports to anon, authenticated;
+grant insert, update on public.road_reports to authenticated;
+grant select on public.transit_routes, public.transit_stops to anon, authenticated;
+grant select on public.building_models to anon, authenticated;
+grant select on public.accessibility_features to anon, authenticated;
+grant insert, update on public.accessibility_features to authenticated;
+grant select, insert, update on public.community_contributions to authenticated;
+grant select, update on public.user_profiles to authenticated;
+grant execute on function public.nearby_places(double precision, double precision, integer, text)
+  to anon, authenticated;
+\n-- Do not store continuous user-location histories. Keep reports coarse and time-limited.
