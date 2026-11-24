@@ -111,7 +111,44 @@ class DelleeniBackend {
         : const [];
   }
 
+  Future<List<Map<String, dynamic>>> fetchNearbyReports({
+    required double latitude,
+    required double longitude,
+    int radiusMeters = 5000,
+  }) => getRows('road_reports', query: {
+    'select': 'id,kind,details,city,governorate,created_at,expires_at',
+    'status': 'eq.verified',
+    'expires_at': 'gt.${DateTime.now().toUtc().toIso8601String()}',
+    'order': 'created_at.desc',
+    'limit': '100',
+  });
+
+  Future<List<Map<String, dynamic>>> fetchTransitRoutes({required String city}) =>
+      getRows('transit_routes', query: {
+        'select': 'id,name,mode,city,governorate,fare_min_iqd,fare_max_iqd,notes',
+        'status': 'eq.published',
+        'city': 'ilike.*$city*',
+        'order': 'name.asc',
+        'limit': '100',
+      });
+
+  Future<List<Map<String, dynamic>>> fetchAccessibilityFeatures({
+    required double latitude,
+    required double longitude,
+  }) => getRows('accessibility_features', query: {
+    'select': 'id,kind,notes,verified,created_at',
+    'status': 'eq.published',
+    'verified': 'eq.true',
+    'limit': '100',
+  });
+
   void close() => _client.close();
+}
+
+class DelleeniSession {
+  const DelleeniSession({required this.userId, required this.accessToken});
+  final String userId;
+  final String accessToken;
 }
 
 class DelleeniBackendException implements Exception {
