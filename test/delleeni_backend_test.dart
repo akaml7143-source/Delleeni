@@ -41,4 +41,30 @@ void main() {
     expect(session.accessToken, 'test-access-token');
     backend.close();
   });
+  test('nearby road reports use spatial RPC with the requested radius', () async {
+    final client = MockClient((request) async {
+      expect(request.url.path, '/rest/v1/rpc/nearby_road_reports');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['p_lat'], 31.8);
+      expect(body['p_lon'], 47.1);
+      expect(body['p_radius_m'], 2500);
+      return http.Response(jsonEncode([
+        {'id': 'report-1', 'kind': 'traffic', 'governorate': 'ميسان'},
+      ]), 200);
+    });
+    final backend = DelleeniBackend(
+      baseUrl: 'https://demo.supabase.co',
+      anonKey: 'public-key',
+      client: client,
+    );
+    final rows = await backend.fetchNearbyReports(
+      latitude: 31.8,
+      longitude: 47.1,
+      radiusMeters: 2500,
+    );
+    expect(rows, hasLength(1));
+    expect(rows.first['kind'], 'traffic');
+    backend.close();
+  });
+
 }
