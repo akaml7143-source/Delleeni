@@ -68,6 +68,18 @@ missing_functions = sorted(required_functions - found_functions)
 if missing_functions:
     raise SystemExit("Required functions missing: " + ", ".join(missing_functions))
 
+# PostGIS is installed in the extensions schema and spatial RPCs pin an empty
+# search_path. Every PostGIS type/function reference must therefore be qualified.
+unqualified_postgis_function = re.search(
+    r"(?<![a-z0-9_.])st_(?:x|y|distance|dwithin|setsrid|makepoint)\s*\(",
+    sql, flags=re.IGNORECASE
+)
+if unqualified_postgis_function:
+    raise SystemExit("PostGIS functions must be qualified with extensions.")
+
+if re.search(r"::\s*(?:geometry|geography)\b", sql, flags=re.IGNORECASE):
+    raise SystemExit("PostGIS type casts must be qualified with extensions.")
+
 
 
 if 'new.role is distinct from old.role' not in sql.lower():
