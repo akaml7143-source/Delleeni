@@ -143,6 +143,7 @@ class _MapHomePageState extends State<MapHomePage> {
   int _safetyReminderIndex = 0;
   bool _listening = false;
   bool _speaking = false;
+  bool _voiceConversation = false;
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _lastRerouteAt;
   bool _rerouting = false;
@@ -1054,11 +1055,18 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   Future<void> _askByVoice() async {
-    if (_listening) {
+    if (_listening || _voiceConversation) {
+      _voiceConversation = false;
       await _speech.stop();
       if (mounted) setState(() => _listening = false);
       return;
     }
+    _voiceConversation = true;
+    await _listenForVoiceTurn();
+  }
+
+  Future<void> _listenForVoiceTurn() async {
+    if (!_voiceConversation || !mounted) return;
     final available = await _speech.initialize(
       onStatus: (status) {
         if (status == 'notListening' && mounted) {
@@ -1094,10 +1102,20 @@ class _MapHomePageState extends State<MapHomePage> {
         setState(() => _voiceText = result.recognizedWords);
         if (result.finalResult) {
           setState(() => _listening = false);
-          _answerRouteQuestion(result.recognizedWords);
+          unawaited(_completeVoiceTurn(result.recognizedWords));
         }
       },
     );
+  }
+
+  Future<void> _completeVoiceTurn(String question) async {
+    await _answerRouteQuestion(question);
+    await _speech.stop();
+    if (!_voiceConversation || !mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (_voiceConversation && mounted) {
+      await _listenForVoiceTurn();
+    }
   }
 
   Future<void> _answerRouteQuestion(String question) async {
@@ -1466,8 +1484,8 @@ class _MapHomePageState extends State<MapHomePage> {
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: _askByVoice,
-                              icon: Icon(_listening ? Icons.mic : Icons.mic_none),
-                              label: Text(_listening ? 'دا أسمعك...' : 'احچي ويا دلّيني'),
+                              icon: Icon(_voiceConversation ? Icons.call_end : Icons.mic_none),
+                              label: Text(_listening ? 'دا أسمعك...' : (_voiceConversation ? 'إنهاء المحادثة' : 'احچي ويا دلّيني')),
                             ),
                           ),
                         ],
