@@ -145,6 +145,24 @@ class _MapHomePageState extends State<MapHomePage> {
   NearbyPlace? _selectedNearby;
   final Set<int> _favoritePlaceIds = <int>{};
   bool _showFavoritesOnly = false;
+  String _nearbyCategoryFilter = 'الكل';
+
+  bool _matchesNearbyCategory(NearbyPlace place) {
+    if (_nearbyCategoryFilter == 'الكل') return true;
+    final category = place.category.toLowerCase();
+    switch (_nearbyCategoryFilter) {
+      case 'مطاعم ومقاهي':
+        return ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream'].contains(category);
+      case 'صحة':
+        return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'].contains(category) || category == 'healthcare';
+      case 'تسوق':
+        return place.category.isNotEmpty && !['restaurant', 'cafe', 'fast_food', 'hospital', 'clinic', 'pharmacy', 'fuel', 'bank', 'atm', 'school', 'police'].contains(category);
+      case 'خدمات':
+        return ['fuel', 'bank', 'atm', 'school', 'police'].contains(category);
+      default:
+        return true;
+    }
+  }
 
   @override
   void initState() {
@@ -304,8 +322,9 @@ class _MapHomePageState extends State<MapHomePage> {
         Expanded(child: Text(_showFavoritesOnly ? 'الأماكن المفضلة' : 'كل الأماكن القريبة', textDirection: TextDirection.rtl)),
         TextButton.icon(onPressed: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly), icon: Icon(_showFavoritesOnly ? Icons.store : Icons.star), label: Text(_showFavoritesOnly ? 'عرض الكل' : 'المفضلة')),
       ])),
-      Expanded(child: _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).isEmpty ? Center(child: Text(_showFavoritesOnly ? 'ما عندك أماكن مفضلة بعد' : 'ماكو أماكن مسجلة ضمن المنطقة')) : ListView.builder(itemCount: _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).length, itemBuilder: (context,index) {
-        final visiblePlaces = _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).toList();
+      SizedBox(height: 46, child: ListView(scrollDirection: Axis.horizontal, children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات'].map((category) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(category), selected: _nearbyCategoryFilter == category, onSelected: (_) => setState(() => _nearbyCategoryFilter = category))).toList())),
+      Expanded(child: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).isEmpty ? Center(child: Text(_showFavoritesOnly ? 'ما عندك أماكن مطابقة للمفضلة' : 'ماكو أماكن من هذا التصنيف')) : ListView.builder(itemCount: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).length, itemBuilder: (context,index) {
+        final visiblePlaces = _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).toList();
         final place = visiblePlaces[index]; final here = _userPoint ?? place.point;
         final km = Geolocator.distanceBetween(here.latitude,here.longitude,place.point.latitude,place.point.longitude)/1000;
         return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',textDirection: TextDirection.rtl),trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(onPressed: () => _toggleFavoritePlace(place.id), icon: Icon(_favoritePlaceIds.contains(place.id) ? Icons.star : Icons.star_border, color: Colors.amber)), const Icon(Icons.directions)]),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
