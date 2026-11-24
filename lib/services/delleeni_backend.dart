@@ -35,13 +35,12 @@ class DelleeniBackend {
     };
   }
 
-  Uri _tableUri(String table, [Map<String, String>? query]) {
-    final root = Uri.parse(baseUrl);
-    return root.replace(
-      path: '${root.path.replaceFirst(RegExp(r'/\$'), '')}/rest/v1/$table',
-      queryParameters: query,
-    );
-  }
+  String get _basePath => baseUrl.endsWith('/')
+      ? baseUrl.substring(0, baseUrl.length - 1)
+      : baseUrl;
+
+  Uri _tableUri(String table, [Map<String, String>? query]) =>
+      Uri.parse('$_basePath/rest/v1/$table').replace(queryParameters: query);
 
   Future<List<Map<String, dynamic>>> getRows(
     String table, {
