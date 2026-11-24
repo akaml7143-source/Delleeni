@@ -42,8 +42,8 @@ for match in re.finditer(
 ):
     body = match.group(0)
     if re.search(r"security\s+definer", body, flags=re.IGNORECASE):
-        if not re.search(r"set\s+search_path\s*=", body, flags=re.IGNORECASE):
-            raise SystemExit(f"SECURITY DEFINER function lacks fixed search_path: {match.group(1)}")
+        if not re.search(r"set\s+search_path\s*=\s*''", body, flags=re.IGNORECASE):
+            raise SystemExit(f"SECURITY DEFINER function must use an empty search_path: {match.group(1)}")
 
 required_functions = {
     "nearby_places",
