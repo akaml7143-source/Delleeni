@@ -48,9 +48,9 @@ void main() {
       expect(body['p_lat'], 31.8);
       expect(body['p_lon'], 47.1);
       expect(body['p_radius_m'], 2500);
-      return http.Response(jsonEncode([
+      return http.Response.bytes(utf8.encode(jsonEncode([
         {'id': 'report-1', 'kind': 'traffic', 'governorate': 'ميسان'},
-      ]), 200);
+      ])), 200);
     });
     final backend = DelleeniBackend(
       baseUrl: 'https://demo.supabase.co',
