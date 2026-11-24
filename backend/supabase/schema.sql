@@ -12,8 +12,8 @@ create table if not exists public.user_profiles (
 
 create table if not exists public.places (
   id uuid primary key default extensions.gen_random_uuid(),
-  name text not null,
-  category text not null,
+  name text not null check (char_length(name) between 2 and 120),
+  category text not null check (char_length(category) between 2 and 60),
   address text,
   neighborhood text,
   city text,
@@ -35,7 +35,7 @@ create index if not exists places_search_idx on public.places (governorate, city
 create table if not exists public.road_reports (
   id uuid primary key default extensions.gen_random_uuid(),
   kind text not null check (kind in ('closure','traffic','roadwork','hazard','other')),
-  details text,
+  details text check (details is null or char_length(details) <= 240),
   location extensions.geography(Point,4326) not null,
   city text,
   governorate text not null,
@@ -173,6 +173,35 @@ create policy "signed in users suggest places" on public.places
 for insert to authenticated with check (created_by = auth.uid() and status = 'pending');
 create policy "moderators manage places" on public.places
 for update to authenticated using (public.is_delleeni_moderator()) with check (public.is_delleeni_moderator());
+
+
+-- Keep road reports short-lived and limit repeated submissions from one account.
+create or replace function public.guard_delleeni_road_report()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $
+begin
+  if new.created_by is null or new.created_by <> auth.uid() then
+    raise exception 'A signed-in contributor is required';
+  end if;
+  if (select count(*) from public.road_reports r
+      where r.created_by = new.created_by
+        and r.created_at > now() - interval '30 minutes') >= 5 then
+    raise exception 'Report submission limit reached; try again later';
+  end if;
+  new.created_at := now();
+  new.expires_at := now() + interval '6 hours';
+  new.status := 'pending';
+  return new;
+end;
+$;
+
+drop trigger if exists guard_delleeni_road_report_insert on public.road_reports;
+create trigger guard_delleeni_road_report_insert
+before insert on public.road_reports
+for each row execute function public.guard_delleeni_road_report();
 
 create policy "active verified reports are public" on public.road_reports
 for select to anon, authenticated using ((status = 'verified' and expires_at > now()) or public.is_delleeni_moderator() or created_by = auth.uid());
