@@ -464,7 +464,18 @@ class _MapHomePageState extends State<MapHomePage> {
                   ),
                   Expanded(
                     child: visiblePlaces.isEmpty
-                        ? const Center(child: Text('ماكو أماكن تطابق البحث والتصنيف'))
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                _nearbyPlaces.isEmpty
+                                    ? 'ماكو أماكن مسجلة حول موقعك حالياً. حدّث القائمة بعد قليل.'
+                                    : 'ماكو أماكن تطابق البحث والتصنيف. امسح كلمة البحث أو غيّر التصنيف.',
+                                textAlign: TextAlign.center,
+                                textDirection: TextDirection.rtl,
+                              ),
+                            ),
+                          )
                         : ListView.builder(
                             itemCount: visiblePlaces.length,
                             itemBuilder: (context, index) {
