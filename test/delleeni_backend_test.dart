@@ -41,6 +41,56 @@ void main() {
     expect(session.accessToken, 'test-access-token');
     backend.close();
   });
+
+  test('moderator password login uses Supabase password grant', () async {
+    final client = MockClient((request) async {
+      expect(request.url.path, '/auth/v1/token');
+      expect(request.url.queryParameters['grant_type'], 'password');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['email'], 'moderator@example.test');
+      expect(body['password'], 'correct-horse');
+      return http.Response(jsonEncode({
+        'access_token': 'moderator-token',
+        'user': {'id': 'moderator-id'},
+      }), 200);
+    });
+    final backend = DelleeniBackend(
+      baseUrl: 'https://demo.supabase.co',
+      anonKey: 'public-key',
+      client: client,
+    );
+    final session = await backend.signInWithPassword(
+      email: 'moderator@example.test',
+      password: 'correct-horse',
+    );
+    expect(session.userId, 'moderator-id');
+    expect(session.accessToken, 'moderator-token');
+    backend.close();
+  });
+
+  test('moderation RPC uses authenticated access token and rejects unknown result', () async {
+    final client = MockClient((request) async {
+      expect(request.url.path, '/rest/v1/rpc/review_delleeni_place');
+      expect(request.headers['Authorization'], 'Bearer moderator-token');
+      expect(jsonDecode(request.body), {
+        'p_place_id': 'place-1',
+        'p_decision': 'published',
+      });
+      return http.Response('true', 200);
+    });
+    final backend = DelleeniBackend(
+      baseUrl: 'https://demo.supabase.co',
+      anonKey: 'public-key',
+      client: client,
+    );
+    expect(await backend.reviewPlace(
+      placeId: 'place-1',
+      decision: 'published',
+      accessToken: 'moderator-token',
+    ), isTrue);
+    backend.close();
+  });
+
   test('nearby road reports use spatial RPC with the requested radius', () async {
     final client = MockClient((request) async {
       expect(request.url.path, '/rest/v1/rpc/nearby_road_reports');
@@ -66,5 +116,4 @@ void main() {
     expect(rows.first['kind'], 'traffic');
     backend.close();
   });
-
 }
