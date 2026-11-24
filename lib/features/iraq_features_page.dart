@@ -23,6 +23,10 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
   List<Map<String, dynamic>> _accessibility = [];
   List<Map<String, dynamic>> _routeStops = [];
   String? _selectedRouteName;
+  String? _moderatorRole;
+  List<Map<String, dynamic>> _pendingPlaces = [];
+  List<Map<String, dynamic>> _pendingReports = [];
+  List<Map<String, dynamic>> _pendingContributions = [];
 
   static const _governorates = [
     'بغداد','البصرة','نينوى','أربيل','النجف','كربلاء','ميسان','ذي قار',
@@ -323,6 +327,120 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
     }
   }
 
+  Future<void> _moderatorLogin() async {
+    if (!_configured) { _showMessage('أكمل إعداد Supabase أولاً.'); return; }
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('دخول المشرف', textDirection: TextDirection.rtl),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: emailController, keyboardType: TextInputType.emailAddress, autocorrect: false, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'البريد الإلكتروني')),
+          const SizedBox(height: 10),
+          TextField(controller: passwordController, obscureText: true, autocorrect: false, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'كلمة المرور')),
+          const SizedBox(height: 8),
+          const Text('استخدم حساب مشرف أنشأه مالك المشروع مسبقاً. لا تشارك كلمة المرور.', textDirection: TextDirection.rtl, style: TextStyle(fontSize: 12)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('دخول')),
+        ],
+      ),
+    );
+    if (accepted != true) { emailController.dispose(); passwordController.dispose(); return; }
+    setState(() => _busy = true);
+    try {
+      final session = await _backend.signInWithPassword(email: emailController.text, password: passwordController.text);
+      final profile = await _backend.fetchMyProfile(accessToken: session.accessToken);
+      final role = profile?['role']?.toString();
+      if (role != 'moderator' && role != 'admin') { _showMessage('هذا الحساب لا يملك صلاحية مشرف.'); return; }
+      if (!mounted) return;
+      setState(() { _session = session; _moderatorRole = role; });
+      await _loadModerationQueue(showLoading: false);
+      _showMessage('تم التحقق من صلاحية المشرف.');
+    } catch (error) { _showMessage('تعذر دخول المشرف: $error'); }
+    finally { emailController.dispose(); passwordController.dispose(); if (mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _loadModerationQueue({bool showLoading = true}) async {
+    final session = _session;
+    if (session == null || (_moderatorRole != 'moderator' && _moderatorRole != 'admin')) { _showMessage('سجّل دخولك بحساب مشرف أولاً.'); return; }
+    if (showLoading && mounted) setState(() => _busy = true);
+    try {
+      final results = await Future.wait([
+        _backend.fetchPendingPlaces(accessToken: session.accessToken),
+        _backend.fetchPendingReports(accessToken: session.accessToken),
+        _backend.fetchPendingContributions(accessToken: session.accessToken),
+      ]);
+      if (!mounted) return;
+      setState(() { _pendingPlaces = results[0]; _pendingReports = results[1]; _pendingContributions = results[2]; });
+    } catch (error) { _showMessage('تعذر تحميل قائمة المراجعة: $error'); }
+    finally { if (showLoading && mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _reviewPlaceItem(String id, String decision) async {
+    final session = _session; if (session == null) return;
+    setState(() => _busy = true);
+    try {
+      final changed = await _backend.reviewPlace(placeId: id, decision: decision, accessToken: session.accessToken);
+      if (!changed) _showMessage('تمت مراجعة المكان مسبقاً أو لم يعد ضمن الانتظار.');
+      await _loadModerationQueue(showLoading: false);
+    } catch (error) { _showMessage('تعذرت مراجعة المكان: $error'); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _reviewRoadReportItem(String id, String decision) async {
+    final session = _session; if (session == null) return;
+    setState(() => _busy = true);
+    try {
+      final changed = await _backend.reviewRoadReport(reportId: id, decision: decision, accessToken: session.accessToken);
+      if (!changed) _showMessage('انتهت صلاحية البلاغ أو تمت مراجعته مسبقاً.');
+      await _loadModerationQueue(showLoading: false);
+    } catch (error) { _showMessage('تعذرت مراجعة البلاغ: $error'); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _reviewContributionItem(String id, String decision) async {
+    final session = _session; if (session == null) return;
+    setState(() => _busy = true);
+    try {
+      final changed = await _backend.reviewContribution(contributionId: id, decision: decision, accessToken: session.accessToken);
+      if (!changed) _showMessage('تمت مراجعة المساهمة مسبقاً.');
+      await _loadModerationQueue(showLoading: false);
+    } catch (error) { _showMessage('تعذرت مراجعة المساهمة: $error'); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  Widget _reviewButtons({required VoidCallback approve, required VoidCallback reject, String approveLabel = 'نشر'}) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      IconButton(tooltip: approveLabel, onPressed: approve, icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+      IconButton(tooltip: 'رفض', onPressed: reject, icon: const Icon(Icons.cancel_outlined, color: Colors.red)),
+    ],
+  );
+
+  Widget _moderationPanel() {
+    if (_moderatorRole != 'moderator' && _moderatorRole != 'admin') {
+      return _featureCard(icon: Icons.admin_panel_settings_outlined, title: 'دخول المشرف ومراجعة المساهمات', description: 'لوحة محمية لحسابات المشرفين المعتمدة فقط.', status: 'تسجيل دخول', onTap: _moderatorLogin);
+    }
+    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [const Expanded(child: Text('لوحة مراجعة المجتمع', textDirection: TextDirection.rtl, style: TextStyle(fontWeight: FontWeight.bold)),), TextButton.icon(onPressed: _loadModerationQueue, icon: const Icon(Icons.refresh), label: const Text('تحديث'))]),
+      Text('الصلاحية: $_moderatorRole', textDirection: TextDirection.rtl),
+      const Divider(),
+      Text('أماكن بانتظار المراجعة (${_pendingPlaces.length})', textDirection: TextDirection.rtl),
+      if (_pendingPlaces.isEmpty) const Text('لا توجد أماكن معلّقة.', textDirection: TextDirection.rtl),
+      ..._pendingPlaces.map((item) => ListTile(contentPadding: EdgeInsets.zero, title: Text(item['name']?.toString() ?? 'مكان جديد', textDirection: TextDirection.rtl), subtitle: Text('${item['category'] ?? ''} • ${item['city'] ?? item['governorate'] ?? ''}', textDirection: TextDirection.rtl), trailing: _reviewButtons(approve: () => _reviewPlaceItem(item['id'].toString(), 'published'), reject: () => _reviewPlaceItem(item['id'].toString(), 'rejected')))),
+      const Divider(),
+      Text('بلاغات طرق بانتظار المراجعة (${_pendingReports.length})', textDirection: TextDirection.rtl),
+      if (_pendingReports.isEmpty) const Text('لا توجد بلاغات معلّقة صالحة.', textDirection: TextDirection.rtl),
+      ..._pendingReports.map((item) => ListTile(contentPadding: EdgeInsets.zero, title: Text(item['kind']?.toString() ?? 'بلاغ طريق', textDirection: TextDirection.rtl), subtitle: Text('${item['governorate'] ?? ''} • ${item['details'] ?? ''}', textDirection: TextDirection.rtl), trailing: _reviewButtons(approveLabel: 'تأكيد البلاغ', approve: () => _reviewRoadReportItem(item['id'].toString(), 'verified'), reject: () => _reviewRoadReportItem(item['id'].toString(), 'rejected')))),
+      const Divider(),
+      Text('مساهمات أخرى بانتظار المراجعة (${_pendingContributions.length})', textDirection: TextDirection.rtl),
+      if (_pendingContributions.isEmpty) const Text('لا توجد مساهمات أخرى معلّقة.', textDirection: TextDirection.rtl),
+      ..._pendingContributions.map((item) { final payload = item['payload']; final preview = payload is Map ? payload.entries.take(3).map((e) => '${e.key}: ${e.value}').join(' • ') : ''; return ListTile(contentPadding: EdgeInsets.zero, title: Text('${item['action'] ?? ''} • ${item['entity_type'] ?? ''}', textDirection: TextDirection.rtl), subtitle: Text(preview, textDirection: TextDirection.rtl), trailing: _reviewButtons(approveLabel: 'اعتماد', approve: () => _reviewContributionItem(item['id'].toString(), 'approved'), reject: () => _reviewContributionItem(item['id'].toString(), 'rejected'))); }),
+    ])));
+  }
   Widget _sectionTitle(String title, IconData icon) => Padding(
     padding: const EdgeInsets.only(top: 18, bottom: 8),
     child: Row(
@@ -451,6 +569,8 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
                 title: Text(item['kind']?.toString() ?? 'ميزة وصول', textDirection: TextDirection.rtl),
                 subtitle: Text(item['notes']?.toString() ?? '', textDirection: TextDirection.rtl),
               )),
+              _sectionTitle('إدارة ومراجعة المجتمع', Icons.admin_panel_settings_outlined),
+              _moderationPanel(),
               _sectionTitle('بيانات وإعدادات', Icons.settings_outlined),
               _featureCard(icon: Icons.storage_outlined, title: 'حالة الربط بالخادم',
                 description: _configured ? 'تم العثور على إعدادات Supabase في وقت البناء.' :
