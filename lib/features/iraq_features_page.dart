@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../services/delleeni_backend.dart';
+import 'trip_planner_page.dart';
 
 /// Community and live-data tools. No location is read until the user taps
 /// a location-dependent action; submissions remain pending for moderation.
@@ -372,8 +373,11 @@ class _IraqFeaturesPageState extends State<IraqFeaturesPage> {
               _featureCard(icon: Icons.mic, title: 'المساعد الصوتي العراقي',
                 description: 'أوامر الملاحة الصوتية الأساسية تعمل من الواجهة الرئيسية.'),
               _featureCard(icon: Icons.alt_route, title: 'ترتيب الرحلات متعددة الوجهات',
-                description: 'تخطيط نقاط التوقف يحتاج محرك مسارات ومصفوفة أزمنة؛ غير متاح كميزة مكتملة بعد.',
-                status: 'قيد التطوير'),
+                description: 'اختر مدناً متعددة ودع محرك الطرق يقترح ترتيباً أقصر للقيادة.',
+                status: 'تجريبي',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const TripPlannerPage(),
+                ))),
               _featureCard(icon: Icons.view_in_ar, title: 'عرض ثلاثي الأبعاد',
                 description: 'الموجود حالياً إمالة الكاميرا فقط؛ نماذج المباني تحتاج بيانات هندسية.',
                 status: 'جزئي'),
