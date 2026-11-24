@@ -148,6 +148,7 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _showFavoritesOnly = false;
   String _nearbyCategoryFilter = 'الكل';
   String _nearbySearchQuery = '';
+  final List<NearbyPlace> _recentDestinations = <NearbyPlace>[];
 
   String _nearbyCategoryLabel(String category) {
     const labels = <String, String>{
@@ -209,12 +210,73 @@ class _MapHomePageState extends State<MapHomePage> {
   void initState() {
     super.initState();
     _loadFavoritePlaces();
+    _loadRecentDestinations();
   }
 
   Future<void> _loadFavoritePlaces() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() => _favoritePlaceIds.addAll(prefs.getStringList('favorite_place_ids')?.map(int.tryParse).whereType<int>() ?? const <int>[]));
+  }
+
+  Future<void> _loadRecentDestinations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('recent_destinations') ?? const <String>[];
+    final places = <NearbyPlace>[];
+    for (final value in saved) {
+      try {
+        final item = jsonDecode(value) as Map<String, dynamic>;
+        places.add(NearbyPlace(
+          id: (item['id'] as num).toInt(),
+          name: item['name'] as String,
+          category: item['category'] as String? ?? 'مكان',
+          point: LatLng(
+            (item['lat'] as num).toDouble(),
+            (item['lon'] as num).toDouble(),
+          ),
+          address: item['address'] as String? ?? '',
+        ));
+      } catch (_) {
+        // تجاهل السجل التالف دون تعطيل بقية السجلات.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _recentDestinations
+        ..clear()
+        ..addAll(places.take(8));
+    });
+  }
+
+  Future<void> _saveRecentDestination(NearbyPlace place) async {
+    setState(() {
+      _recentDestinations.removeWhere((item) =>
+          item.name == place.name &&
+          item.point.latitude == place.point.latitude &&
+          item.point.longitude == place.point.longitude);
+      _recentDestinations.insert(0, place);
+      if (_recentDestinations.length > 8) {
+        _recentDestinations.removeRange(8, _recentDestinations.length);
+      }
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'recent_destinations',
+      _recentDestinations.map((item) => jsonEncode({
+        'id': item.id,
+        'name': item.name,
+        'category': item.category,
+        'lat': item.point.latitude,
+        'lon': item.point.longitude,
+        'address': item.address,
+      })).toList(),
+    );
+  }
+
+  Future<void> _clearRecentDestinations() async {
+    setState(_recentDestinations.clear);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('recent_destinations');
   }
 
   Future<void> _toggleFavoritePlace(int id) async {
@@ -637,6 +699,14 @@ class _MapHomePageState extends State<MapHomePage> {
         return;
       }
       final destination = _selectedNearby?.point ?? destinations.first.point;
+      final recentDestination = _selectedNearby ??
+          NearbyPlace(
+            id: -1,
+            name: destinations.first.name,
+            category: 'مدينة',
+            point: destination,
+            address: destinations.first.governorate,
+          );
 
       // خادم OSRM العام للتجربة فقط؛ لا يضمن الخدمة أو الاستمرارية للإنتاج.
       final uri = Uri.parse(
@@ -711,6 +781,7 @@ class _MapHomePageState extends State<MapHomePage> {
         );
       }
       await _syncMapAnnotations();
+      await _saveRecentDestination(recentDestination);
       await _speak('تم حساب المسار. $_nextInstruction');
     } catch (error) {
       _message('تعذّر حساب الطريق حالياً. تحقق من الإنترنت وحاول مرة ثانية');
@@ -1187,6 +1258,52 @@ class _MapHomePageState extends State<MapHomePage> {
                           ),
                         ],
                       ),
+                      if (_recentDestinations.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'الوجهات الأخيرة',
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: _clearRecentDestinations,
+                                    child: const Text('مسح السجل'),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(
+                                height: 38,
+                                child: ListView(
+                                  reverse: true,
+                                  scrollDirection: Axis.horizontal,
+                                  children: _recentDestinations.map((place) =>
+                                    Padding(
+                                      padding: const EdgeInsetsDirectional.only(start: 6),
+                                      child: ActionChip(
+                                        avatar: const Icon(Icons.history, size: 16),
+                                        label: Text(place.name),
+                                        onPressed: () {
+                                          setState(() {
+                                            _selectedNearby = place;
+                                            _toController.text = place.name;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ).toList(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (_toController.text.isNotEmpty && _findPlaces(_toController.text).isNotEmpty)
                         Align(
                           alignment: Alignment.centerRight,
