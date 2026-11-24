@@ -334,8 +334,33 @@ class _MapHomePageState extends State<MapHomePage> {
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["tourism"~"hotel|guest_house|museum"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["leisure"~"park|playground"];'
           ');out center 120;';
-      final response = await http.post(Uri.parse('https://overpass-api.de/api/interpreter'), body: {'data': query}).timeout(const Duration(seconds: 35));
-      if (response.statusCode != 200) throw Exception('places unavailable');
+      // نجرب أكثر من خادم عام؛ قد يتوقف أحد خوادم Overpass مؤقتاً.
+      http.Response? response;
+      Object? lastError;
+      const endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass.private.coffee/api/interpreter',
+      ];
+      for (final endpoint in endpoints) {
+        try {
+          final candidate = await http
+              .post(
+                Uri.parse(endpoint),
+                headers: const {'Accept': 'application/json'},
+                body: {'data': query},
+              )
+              .timeout(const Duration(seconds: 25));
+          if (candidate.statusCode == 200) {
+            response = candidate;
+            break;
+          }
+          lastError = Exception('Overpass HTTP ${candidate.statusCode}');
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (response == null) throw lastError ?? Exception('places unavailable');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final elements = data['elements'] as List? ?? [];
       final places = <NearbyPlace>[];
@@ -345,7 +370,7 @@ class _MapHomePageState extends State<MapHomePage> {
         final lat = e['lat'] ?? (e['center'] as Map?)?['lat'];
         final lon = e['lon'] ?? (e['center'] as Map?)?['lon'];
         if (lat is! num || lon is! num) continue;
-        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? 'مكان').toString();
+        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? 'مكان').toString();
         final address = [tags['addr:street'], tags['addr:suburb'], tags['addr:city']].where((v) => v != null && v.toString().isNotEmpty).join('، ');
         places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? 'مكان غير مسمى').toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
       }
@@ -353,8 +378,15 @@ class _MapHomePageState extends State<MapHomePage> {
       if (!mounted) return;
       setState(() => _nearbyPlaces = places.take(80).toList());
       await _syncMapAnnotations();
+      if (places.isEmpty) {
+        _message('ما لقينا أماكن مسجلة ضمن 6 كم حالياً. جرّب التحديث لاحقاً');
+      }
       if (showSheet) _showNearbyPlaces();
-    } catch (_) { _message('تعذّر تحميل الأماكن القريبة. تحقق من الإنترنت وحاول لاحقاً'); }
+    } catch (_) {
+      _message(_nearbyPlaces.isEmpty
+          ? 'تعذّر الاتصال بخدمات الأماكن القريبة. تحقق من الإنترنت وحاول لاحقاً'
+          : 'تعذّر تحديث الأماكن؛ أبقينا النتائج السابقة ظاهرة');
+    }
     finally { if (mounted) setState(() => _loadingNearby = false); }
   }
 
