@@ -138,6 +138,9 @@ class _MapHomePageState extends State<MapHomePage> {
   double _routeDurationSeconds = 0;
   bool _loadingRoute = false;
   bool _tracking = false;
+  double _headingDegrees = 0;
+  Timer? _safetyReminderTimer;
+  int _safetyReminderIndex = 0;
   bool _listening = false;
   bool _speaking = false;
   StreamSubscription<Position>? _positionSubscription;
@@ -300,6 +303,7 @@ class _MapHomePageState extends State<MapHomePage> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _safetyReminderTimer?.cancel();
     _fromController.dispose();
     _toController.dispose();
     _tts.stop();
@@ -858,6 +862,7 @@ class _MapHomePageState extends State<MapHomePage> {
     }
     await _positionSubscription?.cancel();
     setState(() => _tracking = true);
+    _startSafetyReminders();
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -866,7 +871,12 @@ class _MapHomePageState extends State<MapHomePage> {
     ).listen((position) async {
       final point = LatLng(position.latitude, position.longitude);
       if (!mounted) return;
-      setState(() => _userPoint = point);
+      setState(() {
+        _userPoint = point;
+        if (position.speed > 1.2 && position.heading.isFinite) {
+          _headingDegrees = position.heading;
+        }
+      });
       unawaited(_announceUpcomingManeuver(point));
       unawaited(_checkRouteDeviation(point));
       unawaited(_syncMapAnnotations());
@@ -1004,7 +1014,25 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
 
+  void _startSafetyReminders() {
+    _safetyReminderTimer?.cancel();
+    _safetyReminderIndex = 0;
+    const reminders = <String>[
+      'أمانة، انتبه لطريقك وخلي تركيزك على القيادة.',
+      'تذكير من دلّيني: البس حزام الأمان، ولا تنشغل بالموبايل.',
+      'حافظ على نفسك وعلى اللي وياك، وخلي مسافة أمان بينك وبين السيارة الجدامك.',
+    ];
+    _safetyReminderTimer = Timer.periodic(const Duration(minutes: 4), (_) {
+      if (!_tracking || _speaking || !mounted) return;
+      final reminder = reminders[_safetyReminderIndex % reminders.length];
+      _safetyReminderIndex++;
+      unawaited(_speak(reminder));
+    });
+  }
+
   Future<void> _stopTracking() async {
+    _safetyReminderTimer?.cancel();
+    _safetyReminderTimer = null;
     await _positionSubscription?.cancel();
     _positionSubscription = null;
     if (mounted) setState(() => _tracking = false);
@@ -1200,6 +1228,31 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             ),
+            if (_tracking)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: MediaQuery.of(context).size.height * 0.43,
+                child: IgnorePointer(
+                  child: Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.22), blurRadius: 10)],
+                        border: Border.all(color: const Color(0xFF087E70), width: 2),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(7),
+                        child: Transform.rotate(
+                          angle: _headingDegrees * 3.141592653589793 / 180,
+                          child: const Icon(Icons.navigation, size: 30, color: Color(0xFF087E70)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_routePoints.isNotEmpty)
               Positioned(
                 left: 12,
