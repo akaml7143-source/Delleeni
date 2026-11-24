@@ -149,18 +149,57 @@ class _MapHomePageState extends State<MapHomePage> {
   String _nearbyCategoryFilter = 'الكل';
   String _nearbySearchQuery = '';
 
+  String _nearbyCategoryLabel(String category) {
+    const labels = <String, String>{
+      'restaurant': 'مطعم',
+      'cafe': 'مقهى',
+      'fast_food': 'وجبات سريعة',
+      'food_court': 'ساحة طعام',
+      'ice_cream': 'مثلجات',
+      'hospital': 'مستشفى',
+      'clinic': 'عيادة',
+      'doctors': 'طبيب',
+      'dentist': 'طبيب أسنان',
+      'pharmacy': 'صيدلية',
+      'healthcare': 'خدمات صحية',
+      'fuel': 'محطة وقود',
+      'bank': 'مصرف',
+      'atm': 'صراف آلي',
+      'school': 'مدرسة',
+      'police': 'مركز شرطة',
+      'post_office': 'بريد',
+      'library': 'مكتبة',
+      'parking': 'موقف سيارات',
+      'marketplace': 'سوق',
+      'car_wash': 'غسل سيارات',
+      'charging_station': 'شحن مركبات',
+      'supermarket': 'سوبرماركت',
+      'convenience': 'متجر مواد غذائية',
+      'mall': 'مركز تسوق',
+      'clothes': 'ملابس',
+      'bakery': 'مخبز',
+      'hotel': 'فندق',
+      'guest_house': 'دار ضيافة',
+      'museum': 'متحف',
+      'park': 'حديقة',
+      'playground': 'ملعب أطفال',
+      'bus_station': 'محطة حافلات',
+    };
+    return labels[category.toLowerCase()] ?? category.replaceAll('_', ' ');
+  }
+
   bool _matchesNearbyCategory(NearbyPlace place) {
     if (_nearbyCategoryFilter == 'الكل') return true;
     final category = place.category.toLowerCase();
     switch (_nearbyCategoryFilter) {
       case 'مطاعم ومقاهي':
-        return ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream'].contains(category);
+        return ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream', 'bakery'].contains(category);
       case 'صحة':
         return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'].contains(category) || category == 'healthcare';
       case 'تسوق':
         return place.category.isNotEmpty && !['restaurant', 'cafe', 'fast_food', 'hospital', 'clinic', 'pharmacy', 'fuel', 'bank', 'atm', 'school', 'police'].contains(category);
       case 'خدمات':
-        return ['fuel', 'bank', 'atm', 'school', 'police'].contains(category);
+        return ['fuel', 'bank', 'atm', 'school', 'police', 'post_office', 'library', 'parking', 'car_wash', 'charging_station', 'bus_station'].contains(category);
       default:
         return true;
     }
@@ -281,18 +320,20 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
 
-  Future<void> _loadNearbyPlaces() async {
+  Future<void> _loadNearbyPlaces({bool showSheet = true}) async {
     if (_loadingNearby) return;
     final center = _userPoint ?? await _currentLocation();
     if (center == null) return;
     setState(() => _loadingNearby = true);
     try {
-      const radius = 4000;
-      final query = '[out:json][timeout:25];('
-          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|hospital|clinic|pharmacy|fuel|bank|atm|school|police"];'
+      const radius = 6000;
+      final query = '[out:json][timeout:30];('
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|food_court|ice_cream|hospital|clinic|doctors|dentist|pharmacy|fuel|bank|atm|school|police|post_office|library|parking|marketplace|car_wash|charging_station|bus_station"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["shop"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["healthcare"];'
-          ');out center 80;';
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["tourism"~"hotel|guest_house|museum"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["leisure"~"park|playground"];'
+          ');out center 120;';
       final response = await http.post(Uri.parse('https://overpass-api.de/api/interpreter'), body: {'data': query}).timeout(const Duration(seconds: 35));
       if (response.statusCode != 200) throw Exception('places unavailable');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -312,7 +353,7 @@ class _MapHomePageState extends State<MapHomePage> {
       if (!mounted) return;
       setState(() => _nearbyPlaces = places.take(80).toList());
       await _syncMapAnnotations();
-      _showNearbyPlaces();
+      if (showSheet) _showNearbyPlaces();
     } catch (_) { _message('تعذّر تحميل الأماكن القريبة. تحقق من الإنترنت وحاول لاحقاً'); }
     finally { if (mounted) setState(() => _loadingNearby = false); }
   }
@@ -346,9 +387,27 @@ class _MapHomePageState extends State<MapHomePage> {
 
               return Column(
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textDirection: TextDirection.rtl),
+                        ),
+                        IconButton(
+                          tooltip: 'تحديث الأماكن القريبة',
+                          onPressed: _loadingNearby
+                              ? null
+                              : () async {
+                                  await _loadNearbyPlaces(showSheet: false);
+                                  if (context.mounted) refreshSheet(() {});
+                                },
+                          icon: _loadingNearby
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -419,7 +478,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                 leading: const Icon(Icons.place, color: Color(0xFFE9A23B)),
                                 title: Text(place.name, textDirection: TextDirection.rtl),
                                 subtitle: Text(
-                                  '${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',
+                                  '${_nearbyCategoryLabel(place.category)} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',
                                   textDirection: TextDirection.rtl,
                                 ),
                                 trailing: Wrap(
