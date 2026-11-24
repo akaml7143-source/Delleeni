@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() => runApp(const DelleeniApp());
 
@@ -146,6 +147,7 @@ class _MapHomePageState extends State<MapHomePage> {
   final Set<int> _favoritePlaceIds = <int>{};
   bool _showFavoritesOnly = false;
   String _nearbyCategoryFilter = 'الكل';
+  String _nearbySearchQuery = '';
 
   bool _matchesNearbyCategory(NearbyPlace place) {
     if (_nearbyCategoryFilter == 'الكل') return true;
@@ -315,37 +317,167 @@ class _MapHomePageState extends State<MapHomePage> {
     finally { if (mounted) setState(() => _loadingNearby = false); }
   }
 
+  Future<void> _reportNearbyPlace(NearbyPlace place) async {
+    final uri = Uri.parse(
+      'https://www.openstreetmap.org/note/new#map=18/${place.point.latitude}/${place.point.longitude}',
+    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened) _message('تعذّر فتح صفحة الإبلاغ؛ حاول مرة أخرى');
+  }
+
   void _showNearbyPlaces() {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: widget.isDark ? const Color(0xFF202A2A) : Colors.white, builder: (sheetContext) => SafeArea(child: SizedBox(height: MediaQuery.of(sheetContext).size.height * 0.65, child: Column(children: [
-      const Padding(padding: EdgeInsets.all(16), child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
-        Expanded(child: Text(_showFavoritesOnly ? 'الأماكن المفضلة' : 'كل الأماكن القريبة', textDirection: TextDirection.rtl)),
-        TextButton.icon(onPressed: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly), icon: Icon(_showFavoritesOnly ? Icons.store : Icons.star), label: Text(_showFavoritesOnly ? 'عرض الكل' : 'المفضلة')),
-      ])),
-      SizedBox(
-        height: 46,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات']
-              .map((category) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: ChoiceChip(
-                      label: Text(category),
-                      selected: _nearbyCategoryFilter == category,
-                      onSelected: (_) => setState(() => _nearbyCategoryFilter = category),
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: widget.isDark ? const Color(0xFF202A2A) : Colors.white,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(sheetContext).size.height * 0.78,
+          child: StatefulBuilder(
+            builder: (context, refreshSheet) {
+              final query = _nearbySearchQuery.trim().toLowerCase();
+              final visiblePlaces = _nearbyPlaces.where((place) {
+                final matchesFavorite = !_showFavoritesOnly || _favoritePlaceIds.contains(place.id);
+                final matchesCategory = _matchesNearbyCategory(place);
+                final searchable = '${place.name} ${place.category} ${place.address}'.toLowerCase();
+                return matchesFavorite && matchesCategory &&
+                    (query.isEmpty || searchable.contains(query));
+              }).toList();
+
+              return Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextField(
+                      textDirection: TextDirection.rtl,
+                      onChanged: (value) => refreshSheet(() => _nearbySearchQuery = value),
+                      decoration: InputDecoration(
+                        hintText: 'ابحث عن مطعم أو متجر أو مستشفى...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _nearbySearchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () => refreshSheet(() => _nearbySearchQuery = ''),
+                                icon: const Icon(Icons.close),
+                              ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        isDense: true,
+                      ),
                     ),
-                  ))
-              .toList(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _showFavoritesOnly ? 'الأماكن المفضلة' : 'كل الأماكن القريبة',
+                            textDirection: TextDirection.rtl,
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => refreshSheet(() => _showFavoritesOnly = !_showFavoritesOnly),
+                          icon: Icon(_showFavoritesOnly ? Icons.store : Icons.star),
+                          label: Text(_showFavoritesOnly ? 'عرض الكل' : 'المفضلة'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 46,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات']
+                          .map((category) => Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                child: ChoiceChip(
+                                  label: Text(category),
+                                  selected: _nearbyCategoryFilter == category,
+                                  onSelected: (_) => refreshSheet(() => _nearbyCategoryFilter = category),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                  Expanded(
+                    child: visiblePlaces.isEmpty
+                        ? const Center(child: Text('ماكو أماكن تطابق البحث والتصنيف'))
+                        : ListView.builder(
+                            itemCount: visiblePlaces.length,
+                            itemBuilder: (context, index) {
+                              final place = visiblePlaces[index];
+                              final here = _userPoint ?? place.point;
+                              final km = Geolocator.distanceBetween(
+                                    here.latitude, here.longitude,
+                                    place.point.latitude, place.point.longitude,
+                                  ) / 1000;
+                              return ListTile(
+                                leading: const Icon(Icons.place, color: Color(0xFFE9A23B)),
+                                title: Text(place.name, textDirection: TextDirection.rtl),
+                                subtitle: Text(
+                                  '${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',
+                                  textDirection: TextDirection.rtl,
+                                ),
+                                trailing: Wrap(
+                                  spacing: 0,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'إضافة للمفضلة',
+                                      onPressed: () {
+                                        _toggleFavoritePlace(place.id);
+                                        refreshSheet(() {});
+                                      },
+                                      icon: Icon(
+                                        _favoritePlaceIds.contains(place.id) ? Icons.star : Icons.star_border,
+                                        color: Colors.amber,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'الإبلاغ عن خطأ أو نقص',
+                                      onPressed: () => _reportNearbyPlace(place),
+                                      icon: const Icon(Icons.flag_outlined),
+                                    ),
+                                  ],
+                                ),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedNearby = place;
+                                    _toController.text = place.name;
+                                  });
+                                  Navigator.pop(sheetContext);
+                                  _map?.animateCamera(
+                                    mlg.CameraUpdate.newCameraPosition(
+                                      mlg.CameraPosition(
+                                        target: mlg.LatLng(place.point.latitude, place.point.longitude),
+                                        zoom: 16,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      'المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة. زر الإبلاغ يفتح صفحة OSM لتكتب الملاحظة بنفسك.',
+                      textDirection: TextDirection.rtl,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
-      Expanded(child: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).isEmpty ? Center(child: Text(_showFavoritesOnly ? 'ما عندك أماكن مطابقة للمفضلة' : 'ماكو أماكن من هذا التصنيف')) : ListView.builder(itemCount: _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).length, itemBuilder: (context,index) {
-        final visiblePlaces = _nearbyPlaces.where((p) => (!_showFavoritesOnly || _favoritePlaceIds.contains(p.id)) && _matchesNearbyCategory(p)).toList();
-        final place = visiblePlaces[index]; final here = _userPoint ?? place.point;
-        final km = Geolocator.distanceBetween(here.latitude,here.longitude,place.point.latitude,place.point.longitude)/1000;
-        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',textDirection: TextDirection.rtl),trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(onPressed: () => _toggleFavoritePlace(place.id), icon: Icon(_favoritePlaceIds.contains(place.id) ? Icons.star : Icons.star_border, color: Colors.amber)), const Icon(Icons.directions)]),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
-      })),
-      const Padding(padding: EdgeInsets.all(12),child: Text('المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة.',textDirection: TextDirection.rtl)),
-    ]))) );
+    ).whenComplete(() => _nearbySearchQuery = '');
   }
 
   Future<void> _toggle3d() async {
