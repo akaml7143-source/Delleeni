@@ -24,6 +24,8 @@ create table if not exists public.places (
   source text not null default 'community',
   status text not null default 'pending' check (status in ('pending','published','closed','rejected')),
   verified_at timestamptz,
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
   created_by uuid references auth.users(id) on delete set null,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
@@ -42,6 +44,8 @@ create table if not exists public.road_reports (
   status text not null default 'pending' check (status in ('pending','verified','rejected','resolved')),
   expires_at timestamptz not null default (now() + interval '6 hours'),
   verified_at timestamptz,
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -342,6 +346,12 @@ grant execute on function public.nearby_places(double precision, double precisio
 -- functions; the caller cannot choose reviewer_id or bypass the role table.
 alter table public.community_contributions
   add column if not exists reviewer_notes text;
+alter table public.places
+  add column if not exists reviewed_by uuid references auth.users(id) on delete set null,
+  add column if not exists reviewed_at timestamptz;
+alter table public.road_reports
+  add column if not exists reviewed_by uuid references auth.users(id) on delete set null,
+  add column if not exists reviewed_at timestamptz;
 
 create index if not exists community_contributions_pending_idx
   on public.community_contributions(status, created_at);
@@ -368,6 +378,8 @@ begin
   update public.places
   set status = p_decision,
       verified_at = case when p_decision = 'published' then pg_catalog.now() else verified_at end,
+      reviewed_by = auth.uid(),
+      reviewed_at = pg_catalog.now(),
       updated_at = pg_catalog.now()
   where id = p_place_id and status = 'pending';
   if found then
@@ -403,7 +415,9 @@ begin
   end if;
   update public.road_reports
   set status = p_decision,
-      verified_at = case when p_decision = 'verified' then pg_catalog.now() else verified_at end
+      verified_at = case when p_decision = 'verified' then pg_catalog.now() else verified_at end,
+      reviewed_by = auth.uid(),
+      reviewed_at = pg_catalog.now()
   where id = p_report_id and status = 'pending' and expires_at > pg_catalog.now();
   return found;
 end;
