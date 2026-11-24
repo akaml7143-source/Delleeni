@@ -237,9 +237,9 @@ class _MapHomePageState extends State<MapHomePage> {
     try {
       const radius = 4000;
       final query = '[out:json][timeout:25];('
-          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|hospital|clinic|pharmacy|fuel|bank|atm|school|police"];'
-          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["shop"];'
-          'nwr(around:$radius,\${center.latitude},\${center.longitude})["name"]["healthcare"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|hospital|clinic|pharmacy|fuel|bank|atm|school|police"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["shop"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["healthcare"];'
           ');out center 80;';
       final response = await http.post(Uri.parse('https://overpass-api.de/api/interpreter'), body: {'data': query}).timeout(const Duration(seconds: 35));
       if (response.statusCode != 200) throw Exception('places unavailable');
@@ -271,7 +271,7 @@ class _MapHomePageState extends State<MapHomePage> {
       Expanded(child: _nearbyPlaces.isEmpty ? const Center(child: Text('ماكو أماكن مسجلة ضمن المنطقة')) : ListView.builder(itemCount: _nearbyPlaces.length, itemBuilder: (context,index) {
         final place = _nearbyPlaces[index]; final here = _userPoint ?? place.point;
         final km = Geolocator.distanceBetween(here.latitude,here.longitude,place.point.latitude,place.point.longitude)/1000;
-        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('\${place.category} • \${km.toStringAsFixed(1)} كم\${place.address.isEmpty ? '' : ' • \${place.address}'}',textDirection: TextDirection.rtl),trailing: const Icon(Icons.directions),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
+        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',textDirection: TextDirection.rtl),trailing: const Icon(Icons.directions),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
       })),
       const Padding(padding: EdgeInsets.all(12),child: Text('المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة.',textDirection: TextDirection.rtl)),
     ]))) );
