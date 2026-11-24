@@ -370,7 +370,18 @@ begin
       verified_at = case when p_decision = 'published' then pg_catalog.now() else verified_at end,
       updated_at = pg_catalog.now()
   where id = p_place_id and status = 'pending';
-  return found;
+  if found then
+    update public.community_contributions
+    set status = case when p_decision = 'published' then 'approved' else 'rejected' end,
+        reviewer_id = auth.uid(),
+        reviewed_at = pg_catalog.now()
+    where entity_type = 'place'
+      and entity_id = p_place_id
+      and action = 'add'
+      and status = 'pending';
+    return true;
+  end if;
+  return false;
 end;
 $$;
 
