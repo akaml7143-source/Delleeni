@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const DelleeniApp());
 
@@ -142,6 +143,28 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _loadingNearby = false;
   List<NearbyPlace> _nearbyPlaces = [];
   NearbyPlace? _selectedNearby;
+  final Set<int> _favoritePlaceIds = <int>{};
+  bool _showFavoritesOnly = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavoritePlaces();
+  }
+
+  Future<void> _loadFavoritePlaces() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _favoritePlaceIds.addAll(prefs.getStringList('favorite_place_ids')?.map(int.tryParse).whereType<int>() ?? const <int>[]));
+  }
+
+  Future<void> _toggleFavoritePlace(int id) async {
+    setState(() {
+      if (!_favoritePlaceIds.add(id)) _favoritePlaceIds.remove(id);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favorite_place_ids', _favoritePlaceIds.map((value) => value.toString()).toList());
+  }
 
   List<IraqPlace> _findPlaces(String query) {
     final value = query.trim();
@@ -277,10 +300,15 @@ class _MapHomePageState extends State<MapHomePage> {
   void _showNearbyPlaces() {
     showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: widget.isDark ? const Color(0xFF202A2A) : Colors.white, builder: (sheetContext) => SafeArea(child: SizedBox(height: MediaQuery.of(sheetContext).size.height * 0.65, child: Column(children: [
       const Padding(padding: EdgeInsets.all(16), child: Text('أماكن قريبة منك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-      Expanded(child: _nearbyPlaces.isEmpty ? const Center(child: Text('ماكو أماكن مسجلة ضمن المنطقة')) : ListView.builder(itemCount: _nearbyPlaces.length, itemBuilder: (context,index) {
-        final place = _nearbyPlaces[index]; final here = _userPoint ?? place.point;
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
+        Expanded(child: Text(_showFavoritesOnly ? 'الأماكن المفضلة' : 'كل الأماكن القريبة', textDirection: TextDirection.rtl)),
+        TextButton.icon(onPressed: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly), icon: Icon(_showFavoritesOnly ? Icons.store : Icons.star), label: Text(_showFavoritesOnly ? 'عرض الكل' : 'المفضلة')),
+      ])),
+      Expanded(child: _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).isEmpty ? Center(child: Text(_showFavoritesOnly ? 'ما عندك أماكن مفضلة بعد' : 'ماكو أماكن مسجلة ضمن المنطقة')) : ListView.builder(itemCount: _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).length, itemBuilder: (context,index) {
+        final visiblePlaces = _nearbyPlaces.where((p) => !_showFavoritesOnly || _favoritePlaceIds.contains(p.id)).toList();
+        final place = visiblePlaces[index]; final here = _userPoint ?? place.point;
         final km = Geolocator.distanceBetween(here.latitude,here.longitude,place.point.latitude,place.point.longitude)/1000;
-        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',textDirection: TextDirection.rtl),trailing: const Icon(Icons.directions),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
+        return ListTile(leading: const Icon(Icons.place,color: Color(0xFFE9A23B)),title: Text(place.name,textDirection: TextDirection.rtl),subtitle: Text('${place.category} • ${km.toStringAsFixed(1)} كم${place.address.isEmpty ? '' : ' • ${place.address}'}',textDirection: TextDirection.rtl),trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(onPressed: () => _toggleFavoritePlace(place.id), icon: Icon(_favoritePlaceIds.contains(place.id) ? Icons.star : Icons.star_border, color: Colors.amber)), const Icon(Icons.directions)]),onTap: () { setState(() { _selectedNearby=place; _toController.text=place.name; }); Navigator.pop(sheetContext); _map?.animateCamera(mlg.CameraUpdate.newCameraPosition(mlg.CameraPosition(target: mlg.LatLng(place.point.latitude,place.point.longitude),zoom:16))); });
       })),
       const Padding(padding: EdgeInsets.all(12),child: Text('المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة.',textDirection: TextDirection.rtl)),
     ]))) );
