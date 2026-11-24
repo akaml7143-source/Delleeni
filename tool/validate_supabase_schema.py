@@ -17,11 +17,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "backend" / "supabase" / "schema.sql"
 sql = SCHEMA.read_text(encoding="utf-8")
 
-try:
-    statements = parse_sql(sql)
-except Exception as exc:
-    print(f"SQL syntax validation failed: {exc}", file=sys.stderr)
-    raise SystemExit(1)
+sql_files = [SCHEMA, *sorted((ROOT / "backend" / "supabase" / "migrations").glob("*.sql"))]
+statement_count = 0
+for sql_file in sql_files:
+    source = sql_file.read_text(encoding="utf-8")
+    try:
+        statement_count += len(parse_sql(source))
+    except Exception as exc:
+        print(f"SQL syntax validation failed in {sql_file.relative_to(ROOT)}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
 tables = set(re.findall(
     r"create\s+table\s+if\s+not\s+exists\s+public\.([a-z_][a-z0-9_]*)",
@@ -79,6 +83,6 @@ for privileged_name in ('review_delleeni_place', 'review_delleeni_road_report', 
         raise SystemExit(f'Privileged function is not revoked from PUBLIC and anon: {privileged_name}')
 
 print(
-    f"Supabase SQL parsed successfully: {len(statements)} statements, "
+    f"Supabase SQL parsed successfully: {statement_count} statements, "
     f"{len(tables)} tables, RLS enabled on all tables."
 )
