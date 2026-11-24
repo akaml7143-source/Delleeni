@@ -3,7 +3,13 @@ name: Build Android APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,6 +20,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Validate Supabase SQL schema
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Parse and check database schema
+        run: |
+          python -m pip install --disable-pip-version-check pglast
+          python tool/validate_supabase_schema.py
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -35,11 +49,57 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
-        continue-on-error: true
       - name: Run tests
         run: flutter test
+      - name: Validate optional Supabase build configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_ANON_KEY is missing while SUPABASE_URL is set."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_URL is missing while SUPABASE_ANON_KEY is set."
+            exit 1
+          fi
+          if [ -n "$SUPABASE_URL" ]; then
+            case "$SUPABASE_URL" in
+              https://*.supabase.co) ;;
+              *) echo "::error::SUPABASE_URL must be an HTTPS Supabase project URL."; exit 1 ;;
+            esac
+            python - <<'PY'
+          import base64
+          import json
+          import os
+          import sys
+
+          key = os.environ["SUPABASE_ANON_KEY"].strip()
+          if key.startswith("sb_secret_"):
+              sys.exit("::error::A Supabase secret key cannot be embedded in a mobile app.")
+          parts = key.split(".")
+          if len(parts) == 3:
+              try:
+                  payload = parts[1] + "=" * (-len(parts[1]) % 4)
+                  claims = json.loads(base64.urlsafe_b64decode(payload))
+              except Exception:
+                  sys.exit("::error::The Supabase JWT key could not be validated.")
+              if claims.get("role") == "service_role":
+                  sys.exit("::error::A service_role key cannot be embedded in a mobile app.")
+          PY
+            echo "Supabase public client configuration is present."
+          else
+            echo "Supabase is not configured; backend-dependent features will remain disabled."
+          fi
       - name: Build release APK
-        run: flutter build apk --release
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

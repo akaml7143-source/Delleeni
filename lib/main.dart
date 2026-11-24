@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'features/iraq_features_page.dart';
 
 void main() => runApp(const DelleeniApp());
 
@@ -1187,14 +1188,38 @@ class _MapHomePageState extends State<MapHomePage> {
                       onPressed: _useMyLocationAsOrigin,
                       icon: const Icon(Icons.my_location),
                     ),
-                    IconButton(
-                      tooltip: 'إدارة الخرائط بدون إنترنت',
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const OfflineMapsPage(),
+                    PopupMenuButton<String>(
+                      tooltip: 'المزيد من خدمات دِلّيني',
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (value) {
+                        if (value == 'offline') {
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const OfflineMapsPage(),
+                          ));
+                        } else if (value == 'services') {
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const IraqFeaturesPage(),
+                          ));
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'offline',
+                          child: ListTile(
+                            leading: Icon(Icons.download_for_offline_outlined),
+                            title: Text('إدارة الخرائط دون إنترنت'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
                         ),
-                      ),
-                      icon: const Icon(Icons.download_for_offline_outlined),
+                        PopupMenuItem(
+                          value: 'services',
+                          child: ListTile(
+                            leading: Icon(Icons.grid_view_rounded),
+                            title: Text('خدمات دِلّيني والبلاغات'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
