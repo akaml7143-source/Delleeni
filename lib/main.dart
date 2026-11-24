@@ -1074,11 +1074,13 @@ class _MapHomePageState extends State<MapHomePage> {
         }
       },
       onError: (_) {
+        _voiceConversation = false;
         if (mounted) setState(() => _listening = false);
         _message('ما كدرت أسمع الصوت. تأكد من إذن المايكروفون');
       },
     );
     if (!available) {
+      _voiceConversation = false;
       _message('خدمة تحويل الصوت إلى نص غير متاحة على هذا الجهاز');
       return;
     }
