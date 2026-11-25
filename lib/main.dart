@@ -431,6 +431,80 @@ class _MapHomePageState extends State<MapHomePage> {
     _message('تم تحديد الوجهة على الخريطة • ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}');
   }
 
+  Future<void> _addGovernorateBoundaries() async {
+    final controller = _map;
+    if (controller == null || !_mapStyleLoaded) return;
+
+    const sourceId = 'iraq-governorates-ar';
+    const lineLayerId = 'iraq-governorate-borders-ar';
+    const labelLayerId = 'iraq-governorate-labels-ar';
+    const geoJsonUrl =
+        'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/data/iraq_governorates.geojson';
+
+    const paletteColors = <String>[
+      '#176b45',
+      '#2563a6',
+      '#a47a20',
+      '#68727d',
+      '#b45b7a',
+    ];
+    final borderColor = paletteColors[_mapPaletteIndex.clamp(0, 4)];
+
+    try {
+      final sourceIds = await controller.getSourceIds();
+      if (!sourceIds.contains(sourceId)) {
+        await controller.addSource(
+          sourceId,
+          const mlg.GeojsonSourceProperties(
+            data: geoJsonUrl,
+            attribution: 'geoBoundaries · CC0 1.0 · Iraq ADM1 (18 governorates)',
+            maxzoom: 10,
+            tolerance: 0.25,
+          ),
+        );
+      }
+
+      final layerIds = await controller.getLayerIds();
+      if (!layerIds.contains(lineLayerId)) {
+        await controller.addLineLayer(
+          sourceId,
+          lineLayerId,
+          mlg.LineLayerProperties(
+            lineColor: borderColor,
+            lineWidth: ['interpolate', ['linear'], ['zoom'], 4.5, 1.0, 7, 1.8, 10, 2.4],
+            lineOpacity: 0.95,
+            lineJoin: 'round',
+          ),
+          minzoom: 4.5,
+        );
+      }
+
+      if (!layerIds.contains(labelLayerId)) {
+        await controller.addSymbolLayer(
+          sourceId,
+          labelLayerId,
+          mlg.SymbolLayerProperties(
+            textField: ['get', 'name_ar'],
+            textFont: ['Noto Sans Regular'],
+            textSize: ['interpolate', ['linear'], ['zoom'], 5, 9, 7, 11, 10, 13],
+            textMaxWidth: 8,
+            textAnchor: 'center',
+            textColor: borderColor,
+            textHaloColor: '#ffffff',
+            textHaloWidth: 1.5,
+            textHaloBlur: 0.3,
+            textPadding: 3,
+            textAllowOverlap: false,
+            textIgnorePlacement: false,
+          ),
+          minzoom: 5,
+        );
+      }
+    } catch (error) {
+      debugPrint('Governorate boundaries could not be added: $error');
+    }
+  }
+
   Future<void> _syncMapAnnotations() async {
     final map = _map;
     if (map == null || !_mapStyleLoaded || map.isDisposed) return;
@@ -1340,6 +1414,7 @@ class _MapHomePageState extends State<MapHomePage> {
                       _selectMapDestination(coordinates),
                   onStyleLoadedCallback: () {
                     _mapStyleLoaded = true;
+                    unawaited(_addGovernorateBoundaries());
                     unawaited(_syncMapAnnotations());
                   },
                 ),
