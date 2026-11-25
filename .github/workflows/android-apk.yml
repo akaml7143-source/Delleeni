@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/iraq-3d-map]
   workflow_dispatch:
 
 permissions:
