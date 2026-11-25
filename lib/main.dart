@@ -1207,7 +1207,7 @@ class _MapHomePageState extends State<MapHomePage> {
                     zoom: 5.5,
                     tilt: _is3d ? 55 : 0,
                   ),
-                  styleString: 'https://tiles.openfreemap.org/styles/3d',
+                  styleString: 'https://tiles.openfreemap.org/styles/liberty',
                   compassEnabled: true,
                   logoEnabled: false,
                   trackCameraPosition: true,
