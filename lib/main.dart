@@ -1233,7 +1233,7 @@ class _MapHomePageState extends State<MapHomePage> {
                   key: ValueKey('map-palette-$_mapPaletteIndex'),
                   initialCameraPosition: mlg.CameraPosition(
                     target: const mlg.LatLng(33.1, 43.8),
-                    zoom: 5.5,
+                    zoom: 4.8,
                     tilt: _is3d ? 55 : 0,
                   ),
                   styleString: _mapStyleUrl,
