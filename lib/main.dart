@@ -151,7 +151,7 @@ class _MapHomePageState extends State<MapHomePage> {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getInt('map_palette_index') ?? 0;
     if (!mounted) return;
-    setState(() => _mapPaletteIndex = saved.clamp(0, _mapPaletteIds.length - 1));
+    setState(() => _mapPaletteIndex = saved.clamp(0, _mapPaletteIds.length - 1).toInt());
   }
 
   Future<void> _cycleMapPalette() async {
