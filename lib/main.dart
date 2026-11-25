@@ -96,6 +96,30 @@ const iraqPlaces = <IraqPlace>[
   IraqPlace('السليمانية', 'السليمانية', LatLng(35.5613, 45.4300)),
 ];
 
+class _MapLegendItem extends StatelessWidget {
+  const _MapLegendItem({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: 7),
+            Text(label, style: const TextStyle(fontSize: 10)),
+          ],
+        ),
+      );
+}
+
 class MapHomePage extends StatefulWidget {
   const MapHomePage({
     required this.isDark,
@@ -115,7 +139,7 @@ class MapHomePage extends StatefulWidget {
 class _MapHomePageState extends State<MapHomePage> {
   mlg.MapLibreMapController? _map;
   bool _mapStyleLoaded = false;
-  bool _is3d = false;
+  bool _is3d = true;
   bool _selectingOriginFromMap = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
@@ -1183,9 +1207,7 @@ class _MapHomePageState extends State<MapHomePage> {
                     zoom: 5.5,
                     tilt: _is3d ? 55 : 0,
                   ),
-                  styleString: isDark
-                      ? 'https://tiles.openfreemap.org/styles/dark'
-                      : 'https://tiles.openfreemap.org/styles/liberty',
+                  styleString: 'https://tiles.openfreemap.org/styles/3d',
                   compassEnabled: true,
                   logoEnabled: false,
                   trackCameraPosition: true,
@@ -1202,6 +1224,29 @@ class _MapHomePageState extends State<MapHomePage> {
               const Positioned.fill(
                 child: ColoredBox(color: Color(0xFFE7ECEB)),
               ),
+            Positioned(
+              top: 66,
+              left: 12,
+              child: Card(
+                color: panelColor,
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Text('دليل ألوان الخريطة', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 6),
+                      _MapLegendItem(color: Color(0xFF2E9D62), label: 'المناطق الخضراء'),
+                      _MapLegendItem(color: Color(0xFF2798D5), label: 'الأنهار والمياه'),
+                      _MapLegendItem(color: Color(0xFFE8B64A), label: 'الطرق الرئيسية'),
+                      _MapLegendItem(color: Color(0xFF9AA3AA), label: 'المناطق العمرانية'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
             Positioned(
               top: 10,
               left: 12,
