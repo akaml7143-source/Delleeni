@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:maplibre/maplibre.dart' as ml hide Position;
@@ -182,7 +183,7 @@ class _MapHomePageState extends State<MapHomePage> {
   List<String> _instructions = [];
   List<RouteManeuver> _routeManeuvers = [];
   int _nextManeuverIndex = 0;
-  final Set<int> _announcedManeuvers = <int>{};
+  final Map<int, Set<int>> _announcedManeuverStages = <int, Set<int>>{};
   String _nextInstruction = 'حدد نقطة الانطلاق والوجهة';
   String _voiceText = '';
   double _routeDistanceMeters = 0;
@@ -856,7 +857,7 @@ class _MapHomePageState extends State<MapHomePage> {
         _instructions = steps;
         _routeManeuvers = maneuvers;
         _nextManeuverIndex = maneuvers.length > 1 ? 1 : 0;
-        _announcedManeuvers.clear();
+        _announcedManeuverStages.clear();
         _nextInstruction =
             steps.isEmpty ? 'اتبع الخط الأزرق على الخريطة' : steps.first;
         _routeDistanceMeters = (route['distance'] as num).toDouble();
@@ -954,20 +955,31 @@ class _MapHomePageState extends State<MapHomePage> {
         _nextManeuverIndex >= _routeManeuvers.length || _speaking) {
       return;
     }
-    final maneuver = _routeManeuvers[_nextManeuverIndex];
+    final index = _nextManeuverIndex;
+    final maneuver = _routeManeuvers[index];
     final meters = const Distance().as(LengthUnit.Meter, current, maneuver.point);
-    if (meters <= 220 && !_announcedManeuvers.contains(_nextManeuverIndex)) {
-      _announcedManeuvers.add(_nextManeuverIndex);
+    final stages = _announcedManeuverStages.putIfAbsent(index, () => <int>{});
+
+    // تعليمات متدرجة باللهجة العراقية: تنبيه مبكر، ثم اقتراب، ثم انعطاف.
+    if (meters <= 500 && meters > 180 && !stages.contains(0)) {
+      stages.add(0);
       if (mounted) setState(() => _nextInstruction = maneuver.instruction);
-      final distance = (meters / 50).round() * 50;
-      await _speak(meters <= 70
-          ? maneuver.instruction
-          : 'بعد حوالي ${distance} متر، ${maneuver.instruction}');
+      await _speak('استعد، بعد حوالي 500 متر، ${maneuver.instruction}');
+    } else if (meters <= 180 && meters > 45 && !stages.contains(1)) {
+      stages.add(1);
+      if (mounted) setState(() => _nextInstruction = maneuver.instruction);
+      await _speak('باقي حوالي 150 متر، ${maneuver.instruction}');
+    } else if (meters <= 45 && !stages.contains(2)) {
+      stages.add(2);
+      if (mounted) setState(() => _nextInstruction = maneuver.instruction);
+      await _speak('هسه، ${maneuver.instruction}');
     }
-    if (meters <= 28) {
+
+    if (meters <= 25 && stages.contains(2)) {
       _nextManeuverIndex++;
       if (_nextManeuverIndex < _routeManeuvers.length && mounted) {
-        setState(() => _nextInstruction = _routeManeuvers[_nextManeuverIndex].instruction);
+        setState(() => _nextInstruction =
+            _routeManeuvers[_nextManeuverIndex].instruction);
       } else if (mounted) {
         setState(() => _nextInstruction = 'وصلت إلى وجهتك');
       }
@@ -1004,6 +1016,7 @@ class _MapHomePageState extends State<MapHomePage> {
 
     _lastRerouteAt = now;
     _rerouting = true;
+    await _speak('ابتعدت عن المسار المحدد، أحاول أحسب لك طريق جديد');
     try {
       final uri = Uri.parse(
         'https://router.project-osrm.org/route/v1/driving/'
@@ -1051,7 +1064,7 @@ class _MapHomePageState extends State<MapHomePage> {
         _instructions = updatedInstructions;
         _routeManeuvers = updatedManeuvers;
         _nextManeuverIndex = updatedManeuvers.length > 1 ? 1 : 0;
-        _announcedManeuvers.clear();
+        _announcedManeuverStages.clear();
         _nextInstruction = updatedInstructions.isEmpty
             ? 'اتبع المسار الجديد على الخريطة'
             : updatedInstructions.first;
@@ -1095,8 +1108,9 @@ class _MapHomePageState extends State<MapHomePage> {
     if (_speaking) return;
     _speaking = true;
     try {
+      await _tts.awaitSpeakCompletion(true);
       try { await _tts.setLanguage('ar-IQ'); } catch (_) { await _tts.setLanguage('ar'); }
-      await _tts.setSpeechRate(0.43);
+      await _tts.setSpeechRate(0.44);
       await _tts.setPitch(1.02);
       await _tts.speak(text);
     } catch (_) {
@@ -1252,6 +1266,33 @@ class _MapHomePageState extends State<MapHomePage> {
             else
               const Positioned.fill(
                 child: ColoredBox(color: Color(0xFFE7ECEB)),
+              ),
+            if (_tracking && _userPoint != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: _headingDegrees * math.pi / 180,
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFF087E70), width: 2),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 3)),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.navigation,
+                          size: 34,
+                          color: Color(0xFF087E70),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             Positioned(
               top: 66,
@@ -1597,7 +1638,7 @@ class OfflineMapsPage extends StatefulWidget {
 }
 
 class _OfflineMapsPageState extends State<OfflineMapsPage> {
-  static const _styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+  String _styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
 
   static const _governorates = <_Governorate>[
     _Governorate('بغداد', 44.12523, 44.59857, 33.23018, 33.49524),
@@ -1635,6 +1676,12 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
 
   Future<void> _initOfflineManager() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      const paletteIds = ['green', 'blue', 'gold', 'gray', 'pink'];
+      final savedPalette = (prefs.getInt('map_palette_index') ?? 0)
+          .clamp(0, paletteIds.length - 1)
+          .toInt();
+      _styleUrl = 'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/map_styles/${paletteIds[savedPalette]}.json';
       final manager = await ml.OfflineManager.createInstance();
       final regions = await manager.listOfflineRegions();
       if (!mounted) {
