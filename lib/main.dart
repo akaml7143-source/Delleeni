@@ -913,6 +913,21 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
 
+  String _formatRouteDistance(double meters) {
+    if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(2)} كم';
+    return '${meters.round()} متر';
+  }
+
+  String _formatRouteDuration(double seconds) {
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes دقيقة تقريباً';
+    final hours = minutes ~/ 60;
+    final remaining = minutes % 60;
+    return remaining == 0
+        ? '$hours ساعة تقريباً'
+        : '$hours ساعة و$remaining دقيقة تقريباً';
+  }
+
   String _maneuverText(String type, String modifier, String road) {
     final roadText = road.isEmpty ? 'الطريق' : 'باتجاه $road';
     if (type == 'arrive') return 'وصلت إلى وجهتك';
@@ -1163,7 +1178,12 @@ class _MapHomePageState extends State<MapHomePage> {
     _speaking = true;
     try {
       await _tts.awaitSpeakCompletion(true);
-      try { await _tts.setLanguage('ar-IQ'); } catch (_) { await _tts.setLanguage('ar'); }
+      try {
+        await _tts.setLanguage('ar-IQ');
+      } catch (_) {
+        await _tts.setLanguage('ar');
+      }
+      await _tts.setVolume(1.0);
       await _tts.setSpeechRate(0.44);
       await _tts.setPitch(1.02);
       await _tts.speak(text);
@@ -1187,9 +1207,11 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _listenForVoiceTurn() async {
     if (!_voiceConversation || !mounted) return;
+    // أوقف أي نطق سابق قبل فتح المايك حتى لا يتداخل صوت التطبيق مع الاستماع.
+    await _tts.stop();
     final available = await _speech.initialize(
       onStatus: (status) {
-        if (status == 'notListening' && mounted) {
+        if ((status == 'notListening' || status == 'done') && mounted) {
           setState(() => _listening = false);
         }
       },
@@ -1218,7 +1240,8 @@ class _MapHomePageState extends State<MapHomePage> {
         : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
     await _speech.listen(
       localeId: selectedLocale,
-      listenFor: const Duration(seconds: 7),
+      listenFor: const Duration(seconds: 15),
+      pauseFor: const Duration(seconds: 4),
       onResult: (result) {
         if (!mounted) return;
         setState(() => _voiceText = result.recognizedWords);
@@ -1231,8 +1254,12 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   Future<void> _completeVoiceTurn(String question) async {
-    await _answerRouteQuestion(question);
     await _speech.stop();
+    if (question.trim().isEmpty) {
+      await _speak('ما وصلني كلام واضح، احچي مرة ثانية وبصوت واضح.');
+    } else {
+      await _answerRouteQuestion(question);
+    }
     if (!_voiceConversation || !mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (_voiceConversation && mounted) {
@@ -1275,7 +1302,7 @@ class _MapHomePageState extends State<MapHomePage> {
     if (_routePoints.isEmpty) {
       answer = 'حدد من وين تريد تنطلق ووين وجهتك، وبعدها أگدر أساعدك بالطريق.';
     } else if (q.contains('باقي') || q.contains('مسافة') || q.contains('بعيد')) {
-      answer = 'المسافة الكلية تقريباً ${(_routeDistanceMeters / 1000).toStringAsFixed(1)} كيلومتر، والوقت التقديري ${(_routeDurationSeconds / 60).round()} دقيقة.';
+      answer = 'مسافة الطريق المحسوبة ${_formatRouteDistance(_routeDistanceMeters)}، والوقت ${_formatRouteDuration(_routeDurationSeconds)}.';
     } else if (q.contains('انعطف') || q.contains('وين') || q.contains('الطريق')) {
       answer = _nextInstruction;
     } else {
@@ -1422,31 +1449,6 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             ),
-            if (_tracking)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: MediaQuery.of(context).size.height * 0.43,
-                child: IgnorePointer(
-                  child: Center(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.22), blurRadius: 10)],
-                        border: Border.all(color: const Color(0xFF087E70), width: 2),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(7),
-                        child: Transform.rotate(
-                          angle: _headingDegrees * 3.141592653589793 / 180,
-                          child: const Icon(Icons.navigation, size: 30, color: Color(0xFF087E70)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             if (_routePoints.isNotEmpty)
               Positioned(
                 left: 12,
@@ -1461,7 +1463,7 @@ class _MapHomePageState extends State<MapHomePage> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          '${(_routeDistanceMeters / 1000).toStringAsFixed(1)} كم  •  ${(_routeDurationSeconds / 60).round()} دقيقة تقريباً',
+                          '${_formatRouteDistance(_routeDistanceMeters)}  •  ${_formatRouteDuration(_routeDurationSeconds)}',
                           textDirection: TextDirection.rtl,
                           style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
                         ),
@@ -1487,7 +1489,7 @@ class _MapHomePageState extends State<MapHomePage> {
                           ],
                         ),
                         const Text(
-                          'المسار تجريبي وقد لا يعكس كل الطرق أو الإغلاقات؛ انتبه للطريق واللوحات.',
+                          'المسافة محسوبة على المسار المتاح بالخريطة، والوقت تقديري وقد يتغير حسب الزحام وحالة الطريق.',
                           textDirection: TextDirection.rtl,
                           style: TextStyle(fontSize: 10),
                         ),
@@ -1509,18 +1511,51 @@ class _MapHomePageState extends State<MapHomePage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
-                        controller: _fromController,
-                        textDirection: TextDirection.rtl,
-                        onChanged: (_) => setState(() => _selectedMapOrigin = null),
-                        decoration: InputDecoration(
-                          hintText: 'من وين تنطلق؟ (الافتراضي موقعي)',
-                          prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0)),
-                          isDense: true,
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _fromController,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setState(() => _selectedMapOrigin = null),
+                              decoration: InputDecoration(
+                                hintText: 'من',
+                                prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0), size: 18),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: TextField(
+                              controller: _toController,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setState(() => _selectedNearby = null),
+                              decoration: InputDecoration(
+                                hintText: 'إلى',
+                                prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0), size: 18),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'استخدم موقعي كنقطة انطلاق',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _useMyLocationAsOrigin,
+                            icon: const Icon(Icons.my_location, size: 20),
+                          ),
+                        ],
                       ),
                       if (_selectedMapOrigin != null)
                         Align(
@@ -1547,32 +1582,7 @@ class _MapHomePageState extends State<MapHomePage> {
                               : 'تحديد نقطة الانطلاق من الخريطة'),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _toController,
-                              textDirection: TextDirection.rtl,
-                              onChanged: (_) => setState(() => _selectedNearby = null),
-                              decoration: InputDecoration(
-                                hintText: 'وين تريد تروح؟',
-                                prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0)),
-                                filled: true,
-                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
-                                isDense: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton.filledTonal(
-                            tooltip: 'موقعي الحالي كنقطة انطلاق',
-                            onPressed: _useMyLocationAsOrigin,
-                            icon: const Icon(Icons.my_location),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 6),
                       if (_selectedNearby != null &&
                           _selectedNearby!.category == 'وجهة محددة')
                         Align(
