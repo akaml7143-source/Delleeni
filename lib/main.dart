@@ -140,6 +140,33 @@ class _MapHomePageState extends State<MapHomePage> {
   mlg.MapLibreMapController? _map;
   bool _mapStyleLoaded = false;
   bool _is3d = true;
+  int _mapPaletteIndex = 0;
+  static const List<String> _mapPaletteIds = ['green', 'blue', 'gold', 'gray'];
+  static const List<String> _mapPaletteNames = ['الأخضر', 'الأزرق', 'الذهبي', 'الرمادي'];
+
+  String get _mapStyleUrl =>
+      'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/map_styles/${_mapPaletteIds[_mapPaletteIndex]}.json';
+
+  Future<void> _loadMapPalette() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt('map_palette_index') ?? 0;
+    if (!mounted) return;
+    setState(() => _mapPaletteIndex = saved.clamp(0, _mapPaletteIds.length - 1));
+  }
+
+  Future<void> _cycleMapPalette() async {
+    final next = (_mapPaletteIndex + 1) % _mapPaletteIds.length;
+    setState(() {
+      _mapStyleLoaded = false;
+      _map = null;
+      _mapPaletteIndex = next;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('map_palette_index', next);
+    if (mounted) {
+      _message('تم تغيير ألوان الخريطة إلى النمط ${_mapPaletteNames[next]}');
+    }
+  }
   bool _selectingOriginFromMap = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
@@ -241,6 +268,7 @@ class _MapHomePageState extends State<MapHomePage> {
     super.initState();
     _loadFavoritePlaces();
     _loadRecentDestinations();
+    _loadMapPalette();
   }
 
   Future<void> _loadFavoritePlaces() async {
@@ -1202,12 +1230,13 @@ class _MapHomePageState extends State<MapHomePage> {
             if (widget.showMap)
               Positioned.fill(
                 child: mlg.MapLibreMap(
+                  key: ValueKey('map-palette-$_mapPaletteIndex'),
                   initialCameraPosition: mlg.CameraPosition(
                     target: const mlg.LatLng(33.1, 43.8),
                     zoom: 5.5,
                     tilt: _is3d ? 55 : 0,
                   ),
-                  styleString: 'https://tiles.openfreemap.org/styles/liberty',
+                  styleString: _mapStyleUrl,
                   compassEnabled: true,
                   logoEnabled: false,
                   trackCameraPosition: true,
@@ -1264,6 +1293,11 @@ class _MapHomePageState extends State<MapHomePage> {
                       tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
                       onPressed: widget.onToggleTheme,
                       icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                    ),
+                    IconButton(
+                      tooltip: 'تغيير ألوان الخريطة: ${_mapPaletteNames[_mapPaletteIndex]}',
+                      onPressed: _cycleMapPalette,
+                      icon: const Icon(Icons.palette_outlined),
                     ),
                     IconButton(
                       tooltip: _is3d ? 'إيقاف العرض الثلاثي' : 'عرض ثلاثي الأبعاد',
