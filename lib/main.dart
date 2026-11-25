@@ -222,6 +222,8 @@ class _MapHomePageState extends State<MapHomePage> {
       'construction': 'أعمال طريق',
       'roadworks': 'أعمال طريق',
       'traffic_calming': 'مطب تهدئة',
+      'pothole': 'حفرة بالطريق',
+      'damaged_road': 'طريق متضرر',
       'clinic': 'عيادة',
       'doctors': 'طبيب',
       'dentist': 'طبيب أسنان',
@@ -262,7 +264,7 @@ class _MapHomePageState extends State<MapHomePage> {
       case 'صحة':
         return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist', 'fire_station', 'ambulance_station'].contains(category) || category == 'healthcare';
       case 'سلامة الطرق':
-        return ['construction', 'roadworks', 'traffic_calming'].contains(category);
+        return ['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(category);
       case 'تسوق':
         return place.category.isNotEmpty && !['restaurant', 'cafe', 'fast_food', 'hospital', 'clinic', 'pharmacy', 'fuel', 'bank', 'atm', 'school', 'police'].contains(category);
       case 'خدمات':
@@ -470,7 +472,7 @@ class _MapHomePageState extends State<MapHomePage> {
         ));
       }
       for (final place in _nearbyPlaces) {
-        final roadAlert = ['construction', 'roadworks', 'traffic_calming'].contains(place.category);
+        final roadAlert = ['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(place.category);
         final emergency = ['hospital', 'clinic', 'pharmacy', 'fire_station', 'ambulance_station', 'police'].contains(place.category);
         await map.addCircle(mlg.CircleOptions(
           geometry: mlg.LatLng(place.point.latitude, place.point.longitude),
@@ -508,6 +510,7 @@ class _MapHomePageState extends State<MapHomePage> {
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["leisure"~"park|playground"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["highway"~"construction|roadworks|traffic_calming"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["traffic_calming"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["hazard"~"pothole|damaged_road"];'
           ');out center 120;';
       // نجرب أكثر من خادم عام؛ قد يتوقف أحد خوادم Overpass مؤقتاً.
       http.Response? response;
@@ -545,11 +548,13 @@ class _MapHomePageState extends State<MapHomePage> {
         final lat = e['lat'] ?? (e['center'] as Map?)?['lat'];
         final lon = e['lon'] ?? (e['center'] as Map?)?['lon'];
         if (lat is! num || lon is! num) continue;
-        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? tags['highway'] ?? tags['traffic_calming'] ?? 'مكان').toString();
+        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? (tags.containsKey('traffic_calming') ? 'traffic_calming' : null) ?? tags['hazard'] ?? tags['highway'] ?? 'مكان').toString();
         final address = [tags['addr:street'], tags['addr:suburb'], tags['addr:city']].where((v) => v != null && v.toString().isNotEmpty).join('، ');
         final fallbackName = ['construction', 'roadworks'].contains(category)
             ? 'أعمال طريق'
-            : category == 'traffic_calming' ? 'مطب تهدئة' : 'مكان غير مسمى';
+            : category == 'traffic_calming' ? 'مطب تهدئة'
+            : category == 'pothole' ? 'حفرة بالطريق'
+            : category == 'damaged_road' ? 'طريق متضرر' : 'مكان غير مسمى';
         places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? fallbackName).toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
       }
       places.sort((a,b) => Geolocator.distanceBetween(center.latitude, center.longitude, a.point.latitude, a.point.longitude).compareTo(Geolocator.distanceBetween(center.latitude, center.longitude, b.point.latitude, b.point.longitude)));
@@ -1106,7 +1111,7 @@ class _MapHomePageState extends State<MapHomePage> {
   Future<void> _announceNearbyRoadAlerts(LatLng current) async {
     if (!_tracking || _speaking) return;
     for (final place in _nearbyPlaces) {
-      if (!['construction', 'roadworks', 'traffic_calming'].contains(place.category) ||
+      if (!['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(place.category) ||
           _announcedRoadAlertIds.contains(place.id)) {
         continue;
       }
@@ -1118,7 +1123,11 @@ class _MapHomePageState extends State<MapHomePage> {
         _announcedRoadAlertIds.add(place.id);
         final message = place.category == 'traffic_calming'
             ? 'انتبه، قدامك مطب تهدئة قريب.'
-            : 'تنبيه طريق: قدامك أعمال طريق، خفف السرعة وانتبه.';
+            : place.category == 'pothole'
+                ? 'انتبه، قدامك بلاغ عن حفرة بالطريق.'
+                : place.category == 'damaged_road'
+                    ? 'تنبيه، أكو بلاغ عن طريق متضرر قدامك.'
+                    : 'تنبيه طريق: قدامك أعمال طريق، خفف السرعة وانتبه.';
         await _speak(message);
         break;
       }
