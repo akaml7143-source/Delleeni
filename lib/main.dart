@@ -207,6 +207,7 @@ class _MapHomePageState extends State<MapHomePage> {
   String _nearbyCategoryFilter = 'الكل';
   String _nearbySearchQuery = '';
   final List<NearbyPlace> _recentDestinations = <NearbyPlace>[];
+  final Set<int> _announcedRoadAlertIds = <int>{};
 
   String _nearbyCategoryLabel(String category) {
     const labels = <String, String>{
@@ -216,6 +217,11 @@ class _MapHomePageState extends State<MapHomePage> {
       'food_court': 'ساحة طعام',
       'ice_cream': 'مثلجات',
       'hospital': 'مستشفى',
+      'fire_station': 'مركز إطفاء',
+      'ambulance_station': 'مركز إسعاف',
+      'construction': 'أعمال طريق',
+      'roadworks': 'أعمال طريق',
+      'traffic_calming': 'مطب تهدئة',
       'clinic': 'عيادة',
       'doctors': 'طبيب',
       'dentist': 'طبيب أسنان',
@@ -254,7 +260,9 @@ class _MapHomePageState extends State<MapHomePage> {
       case 'مطاعم ومقاهي':
         return ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream', 'bakery'].contains(category);
       case 'صحة':
-        return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'].contains(category) || category == 'healthcare';
+        return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist', 'fire_station', 'ambulance_station'].contains(category) || category == 'healthcare';
+      case 'سلامة الطرق':
+        return ['construction', 'roadworks', 'traffic_calming'].contains(category);
       case 'تسوق':
         return place.category.isNotEmpty && !['restaurant', 'cafe', 'fast_food', 'hospital', 'clinic', 'pharmacy', 'fuel', 'bank', 'atm', 'school', 'police'].contains(category);
       case 'خدمات':
@@ -462,7 +470,14 @@ class _MapHomePageState extends State<MapHomePage> {
         ));
       }
       for (final place in _nearbyPlaces) {
-        await map.addCircle(mlg.CircleOptions(geometry: mlg.LatLng(place.point.latitude, place.point.longitude), circleColor: '#E9A23B', circleRadius: 5, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5));
+        final roadAlert = ['construction', 'roadworks', 'traffic_calming'].contains(place.category);
+        final emergency = ['hospital', 'clinic', 'pharmacy', 'fire_station', 'ambulance_station', 'police'].contains(place.category);
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(place.point.latitude, place.point.longitude),
+          circleColor: roadAlert ? '#DC2626' : emergency ? '#2563EB' : '#E9A23B',
+          circleRadius: roadAlert ? 7 : 5,
+          circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5,
+        ));
       }
       if (_userPoint != null) {
         await map.addCircle(mlg.CircleOptions(
@@ -486,11 +501,13 @@ class _MapHomePageState extends State<MapHomePage> {
     try {
       const radius = 6000;
       final query = '[out:json][timeout:30];('
-          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|food_court|ice_cream|hospital|clinic|doctors|dentist|pharmacy|fuel|bank|atm|school|police|post_office|library|parking|marketplace|car_wash|charging_station|bus_station"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|food_court|ice_cream|hospital|clinic|doctors|dentist|pharmacy|fuel|bank|atm|school|police|fire_station|ambulance_station|post_office|library|parking|marketplace|car_wash|charging_station|bus_station"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["shop"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["healthcare"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["tourism"~"hotel|guest_house|museum"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["leisure"~"park|playground"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["highway"~"construction|roadworks|traffic_calming"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["traffic_calming"];'
           ');out center 120;';
       // نجرب أكثر من خادم عام؛ قد يتوقف أحد خوادم Overpass مؤقتاً.
       http.Response? response;
@@ -528,9 +545,12 @@ class _MapHomePageState extends State<MapHomePage> {
         final lat = e['lat'] ?? (e['center'] as Map?)?['lat'];
         final lon = e['lon'] ?? (e['center'] as Map?)?['lon'];
         if (lat is! num || lon is! num) continue;
-        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? 'مكان').toString();
+        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? tags['highway'] ?? tags['traffic_calming'] ?? 'مكان').toString();
         final address = [tags['addr:street'], tags['addr:suburb'], tags['addr:city']].where((v) => v != null && v.toString().isNotEmpty).join('، ');
-        places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? 'مكان غير مسمى').toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
+        final fallbackName = ['construction', 'roadworks'].contains(category)
+            ? 'أعمال طريق'
+            : category == 'traffic_calming' ? 'مطب تهدئة' : 'مكان غير مسمى';
+        places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? fallbackName).toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
       }
       places.sort((a,b) => Geolocator.distanceBetween(center.latitude, center.longitude, a.point.latitude, a.point.longitude).compareTo(Geolocator.distanceBetween(center.latitude, center.longitude, b.point.latitude, b.point.longitude)));
       if (!mounted) return;
@@ -640,7 +660,7 @@ class _MapHomePageState extends State<MapHomePage> {
                     height: 46,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
-                      children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات']
+                      children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات', 'سلامة الطرق']
                           .map((category) => Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 4),
                                 child: ChoiceChip(
@@ -725,7 +745,7 @@ class _MapHomePageState extends State<MapHomePage> {
                   const Padding(
                     padding: EdgeInsets.all(12),
                     child: Text(
-                      'المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة. زر الإبلاغ يفتح صفحة OSM لتكتب الملاحظة بنفسك.',
+                      'المصدر OpenStreetMap؛ قد تكون بعض الأماكن وأعمال الطرق ناقصة أو غير محدثة، وليست بيانات مرور مباشرة. زر الإبلاغ يفتح صفحة OSM لتكتب الملاحظة بنفسك.',
                       textDirection: TextDirection.rtl,
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11),
@@ -917,6 +937,8 @@ class _MapHomePageState extends State<MapHomePage> {
     await _positionSubscription?.cancel();
     setState(() => _tracking = true);
     _startSafetyReminders();
+    _announcedRoadAlertIds.clear();
+    if (_nearbyPlaces.isEmpty) unawaited(_loadNearbyPlaces(showSheet: false));
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -932,6 +954,7 @@ class _MapHomePageState extends State<MapHomePage> {
         }
       });
       unawaited(_announceUpcomingManeuver(point));
+      unawaited(_announceNearbyRoadAlerts(point));
       unawaited(_checkRouteDeviation(point));
       unawaited(_syncMapAnnotations());
       final camera = await _map?.queryCameraPosition();
@@ -1077,6 +1100,28 @@ class _MapHomePageState extends State<MapHomePage> {
       // Keep the current route if the public routing service is unavailable.
     } finally {
       _rerouting = false;
+    }
+  }
+
+  Future<void> _announceNearbyRoadAlerts(LatLng current) async {
+    if (!_tracking || _speaking) return;
+    for (final place in _nearbyPlaces) {
+      if (!['construction', 'roadworks', 'traffic_calming'].contains(place.category) ||
+          _announcedRoadAlertIds.contains(place.id)) {
+        continue;
+      }
+      final meters = Geolocator.distanceBetween(
+        current.latitude, current.longitude,
+        place.point.latitude, place.point.longitude,
+      );
+      if (meters <= 350) {
+        _announcedRoadAlertIds.add(place.id);
+        final message = place.category == 'traffic_calming'
+            ? 'انتبه، قدامك مطب تهدئة قريب.'
+            : 'تنبيه طريق: قدامك أعمال طريق، خفف السرعة وانتبه.';
+        await _speak(message);
+        break;
+      }
     }
   }
 
