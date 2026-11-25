@@ -141,8 +141,8 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _mapStyleLoaded = false;
   bool _is3d = true;
   int _mapPaletteIndex = 0;
-  static const List<String> _mapPaletteIds = ['green', 'blue', 'gold', 'gray'];
-  static const List<String> _mapPaletteNames = ['الأخضر', 'الأزرق', 'الذهبي', 'الرمادي'];
+  static const List<String> _mapPaletteIds = ['green', 'blue', 'gold', 'gray', 'pink'];
+  static const List<String> _mapPaletteNames = ['الأخضر', 'الأزرق', 'الذهبي', 'الرمادي', 'الوردي'];
 
   String get _mapStyleUrl =>
       'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/map_styles/${_mapPaletteIds[_mapPaletteIndex]}.json';
