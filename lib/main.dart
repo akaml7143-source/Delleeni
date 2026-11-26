@@ -97,6 +97,9 @@ const iraqPlaces = <IraqPlace>[
   IraqPlace('السليمانية', 'السليمانية', LatLng(35.5613, 45.4300)),
 ];
 
+const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
 class MapHomePage extends StatefulWidget {
   const MapHomePage({
     required this.isDark,
@@ -175,6 +178,7 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _voiceConversation = false;
   bool _speechInitialized = false;
   bool _voiceTurnHandled = false;
+  final List<Map<String, String>> _voiceChatHistory = <Map<String, String>>[];
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _lastRerouteAt;
   bool _rerouting = false;
@@ -1395,9 +1399,76 @@ class _MapHomePageState extends State<MapHomePage> {
     } else if (q.contains('انعطف') || q.contains('وين') || q.contains('الطريق')) {
       answer = _nextInstruction;
     } else {
-      answer = 'حالياً أگدر أجاوبك عن المسافة والوقت وتعليمات الطريق. المساعد الذكي الحواري الكامل يحتاج ربط خادم آمن، وهذا بعده مو مفعّل.';
+      answer = await _askConversationalAssistant(
+        question,
+        routeContext: _routePoints.isEmpty
+            ? 'لا يوجد مسار نشط حالياً.'
+            : 'المسافة: ${_formatRouteDistance(_routeDistanceMeters)}، الوقت التقديري: ${_formatRouteDuration(_routeDurationSeconds)}، التوجيه القادم: $_nextInstruction',
+      );
     }
     await _speak(answer);
+  }
+
+  Future<String> _askConversationalAssistant(
+    String question, {
+    required String routeContext,
+  }) async {
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      return 'أكدر أسمعك وأرد عليك، بس المساعد الحواري بعده يحتاج إعداد الخادم الآمن. حالياً أگدر أساعدك بأوامر الطريق.';
+    }
+
+    _voiceChatHistory.add(<String, String>{
+      'role': 'user',
+      'content': question,
+    });
+    if (_voiceChatHistory.length > 12) {
+      _voiceChatHistory.removeRange(0, _voiceChatHistory.length - 12);
+    }
+
+    try {
+      final uri = Uri.parse('$_supabaseUrl/functions/v1/delleeni-chat');
+      final response = await http
+          .post(
+            uri,
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_supabaseAnonKey',
+              'apikey': _supabaseAnonKey,
+            },
+            body: jsonEncode(<String, dynamic>{
+              'messages': _voiceChatHistory,
+              'route_context': routeContext,
+            }),
+          )
+          .timeout(const Duration(seconds: 35));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _voiceChatHistory.removeLast();
+        return 'صار خلل بالاتصال بالمساعد. جرّب بعد شوية، أو تأكد من إعداد خدمة المحادثة.';
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final reply = (data['reply'] as String? ?? '').trim();
+      if (reply.isEmpty) {
+        _voiceChatHistory.removeLast();
+        return 'ما وصلتني إجابة واضحة، عيد سؤالك بطريقة ثانية.';
+      }
+
+      _voiceChatHistory.add(<String, String>{
+        'role': 'assistant',
+        'content': reply,
+      });
+      if (_voiceChatHistory.length > 12) {
+        _voiceChatHistory.removeRange(0, _voiceChatHistory.length - 12);
+      }
+      return reply;
+    } on Exception {
+      if (_voiceChatHistory.isNotEmpty &&
+          _voiceChatHistory.last['role'] == 'user') {
+        _voiceChatHistory.removeLast();
+      }
+      return 'الاتصال بالمساعد تأخر. تأكد من الإنترنت وحاول مرة ثانية.';
+    }
   }
 
   @override
