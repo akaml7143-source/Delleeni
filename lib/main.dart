@@ -1413,62 +1413,58 @@ class _MapHomePageState extends State<MapHomePage> {
     String question, {
     required String routeContext,
   }) async {
-    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
-      return 'أكدر أسمعك وأرد عليك، بس المساعد الحواري بعده يحتاج إعداد الخادم الآمن. حالياً أگدر أساعدك بأوامر الطريق.';
+    // مساعد محلي مجاني: لا يرسل كلام المستخدم أو موقعه إلى أي خادم.
+    // يعتمد على قواعد وكلمات مفتاحية، وليس نموذج ذكاء اصطناعي توليدي.
+    final q = question.trim().toLowerCase();
+
+    if (q.isEmpty) return 'ما وصلني سؤالك، احچيلي شتريد تعرف.';
+    if (q.contains('مرحبا') || q.contains('هلا') || q.contains('السلام عليكم') ||
+        q.contains('شلونك') || q.contains('شخبارك')) {
+      return 'هلا بيك، آني دلّيني. حاضر أساعدك بالطريق وبمعلومات التطبيق.';
     }
-
-    _voiceChatHistory.add(<String, String>{
-      'role': 'user',
-      'content': question,
-    });
-    if (_voiceChatHistory.length > 12) {
-      _voiceChatHistory.removeRange(0, _voiceChatHistory.length - 12);
+    if (q.contains('شكرا') || q.contains('مشكور') || q.contains('تسلم')) {
+      return 'تدلّل، بالخدمة. الله يحفظك بطريقك.';
     }
-
-    try {
-      final uri = Uri.parse('$_supabaseUrl/functions/v1/delleeni-chat');
-      final response = await http
-          .post(
-            uri,
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_supabaseAnonKey',
-              'apikey': _supabaseAnonKey,
-            },
-            body: jsonEncode(<String, dynamic>{
-              'messages': _voiceChatHistory,
-              'route_context': routeContext,
-            }),
-          )
-          .timeout(const Duration(seconds: 35));
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _voiceChatHistory.removeLast();
-        return 'صار خلل بالاتصال بالمساعد. جرّب بعد شوية، أو تأكد من إعداد خدمة المحادثة.';
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final reply = (data['reply'] as String? ?? '').trim();
-      if (reply.isEmpty) {
-        _voiceChatHistory.removeLast();
-        return 'ما وصلتني إجابة واضحة، عيد سؤالك بطريقة ثانية.';
-      }
-
-      _voiceChatHistory.add(<String, String>{
-        'role': 'assistant',
-        'content': reply,
-      });
-      if (_voiceChatHistory.length > 12) {
-        _voiceChatHistory.removeRange(0, _voiceChatHistory.length - 12);
-      }
-      return reply;
-    } on Exception {
-      if (_voiceChatHistory.isNotEmpty &&
-          _voiceChatHistory.last['role'] == 'user') {
-        _voiceChatHistory.removeLast();
-      }
-      return 'الاتصال بالمساعد تأخر. تأكد من الإنترنت وحاول مرة ثانية.';
+    if (q.contains('اسمك') || q.contains('منو انت') || q.contains('شنو انت')) {
+      return 'آني دلّيني، مساعدك داخل تطبيق الملاحة. أگدر أساعدك بالتوجيه وبعض الأسئلة الشائعة.';
     }
+    if (q.contains('المسار') || q.contains('الطريق') || q.contains('وين وصلنا')) {
+      if (_routePoints.isEmpty) {
+        return 'ماكو مسار محسوب هسه. حدّد نقطة الانطلاق والوجهة واضغط اعرض الطريق.';
+      }
+      return 'المسار الحالي: ${routeContext}';
+    }
+    if (q.contains('كم باقي') || q.contains('شكد باقي') ||
+        q.contains('المسافة') || q.contains('كم كيلو') || q.contains('بعيد')) {
+      if (_routePoints.isEmpty) return 'بعد ما حسبنا الطريق. حدّد وجهتك أولاً.';
+      return 'المسافة المحسوبة ${_formatRouteDistance(_routeDistanceMeters)}، والوقت التقديري ${_formatRouteDuration(_routeDurationSeconds)}.';
+    }
+    if (q.contains('انعطف') || q.contains('التوجيه القادم') ||
+        q.contains('شنو أسوي') || q.contains('وين أروح')) {
+      return _routePoints.isEmpty
+          ? 'حدد وجهتك أولاً حتى أعطيك تعليمات الطريق.'
+          : _nextInstruction;
+    }
+    if (q.contains('زحمة') || q.contains('ازدحام') || q.contains('مرور')) {
+      return 'ما عندي حالياً بيانات حركة مرور مباشرة، لذلك ما أگدر أأكد وجود زحام. اتبع اللوحات وخفف السرعة.';
+    }
+    if (q.contains('سيطرة') || q.contains('تفتيش') || q.contains('نقطة تفتيش')) {
+      return 'ما عندي بيانات مؤكدة ومباشرة عن السيطرات. انتبه للطريق واتبع تعليمات الجهات المختصة.';
+    }
+    if (q.contains('طقس') || q.contains('جو') || q.contains('مطر')) {
+      return 'ما متصل حالياً بخدمة طقس مباشرة. افحص حالة الجو من مصدر موثوق قبل السفر.';
+    }
+    if (q.contains('حزام') || q.contains('سلامة') || q.contains('أمان')) {
+      return 'سلامتك أولاً: اربط حزام الأمان، وخلي مسافة آمنة، ولا تستخدم الموبايل أثناء القيادة.';
+    }
+    if (q.contains('حادث') || q.contains('طوارئ') || q.contains('إسعاف')) {
+      return 'إذا أكو حالة طارئة، وقف بمكان آمن إذا تگدر واتصل بخدمات الطوارئ المحلية. لا تستخدم الهاتف أثناء قيادة المركبة.';
+    }
+    if (q.contains('شلون أستخدم') || q.contains('طريقة الاستخدام') ||
+        q.contains('ساعدني')) {
+      return 'اكتب أو قل اسم الوجهة، حدّد الانطلاق إذا تحتاج، وبعدها اضغط اعرض الطريق. وللمحادثة اضغط احچي ويا دلّيني.';
+    }
+    return 'أگدر أساعدك بالمسار والمسافة والتوجيه القادم وتنبيهات السلامة. أما الأسئلة العامة المفتوحة فما عندي حالياً نموذج ذكاء اصطناعي متصل بيها، لأن هذا الوضع يعمل محلياً ومجاناً.';
   }
 
   @override
