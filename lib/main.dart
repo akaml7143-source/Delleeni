@@ -172,6 +172,8 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _listening = false;
   bool _speaking = false;
   bool _voiceConversation = false;
+  bool _speechInitialized = false;
+  bool _voiceTurnHandled = false;
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _lastRerouteAt;
   bool _rerouting = false;
@@ -1257,53 +1259,83 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _listenForVoiceTurn() async {
     if (!_voiceConversation || !mounted) return;
-    // أوقف النطق وجلسة الاستماع السابقة حتى لا يتداخل الصوتان.
+
+    // لا نعيد تهيئة خدمة التعرف بكل جولة؛ نوقف الجلسة السابقة فقط.
     await _tts.stop();
     await _speech.stop();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    final available = await _speech.initialize(
-      onStatus: (status) {
-        if ((status == 'notListening' || status == 'done') && mounted) {
-          setState(() => _listening = false);
-        }
-      },
-      onError: (_) {
-        _voiceConversation = false;
-        if (mounted) setState(() => _listening = false);
-        _message('ما كدرت أسمع الصوت. تأكد من إذن المايكروفون');
-      },
-    );
-    if (!available) {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!_voiceConversation || !mounted) return;
+
+    if (!_speechInitialized) {
+      try {
+        _speechInitialized = await _speech.initialize(
+          onStatus: (status) {
+            if (!mounted) return;
+            if (status == 'notListening' || status == 'done') {
+              setState(() => _listening = false);
+              // إذا انتهت مهلة الاستماع بلا نتيجة نهائية، لا نترك المحادثة معلّقة.
+              if (_voiceConversation && !_voiceTurnHandled) {
+                _voiceTurnHandled = true;
+                unawaited(_completeVoiceTurn(_voiceText));
+              }
+            }
+          },
+          onError: (_) {
+            _voiceConversation = false;
+            if (mounted) setState(() => _listening = false);
+            _message('ما كدرت أسمعك. تأكد من إذن المايك وخدمة التعرّف على الكلام واللغة العربية بالجهاز');
+          },
+        );
+      } catch (_) {
+        _speechInitialized = false;
+      }
+    }
+
+    if (!_speechInitialized) {
       _voiceConversation = false;
       if (mounted) setState(() => _listening = false);
-      _message('خدمة التعرّف على الكلام غير متاحة. تأكد من تثبيت خدمة Google وتفعيل العربية والميكروفون');
+      _message('خدمة الاستماع مو متاحة. فعّل المايك وثبّت خدمة التعرّف على الكلام من إعدادات الجهاز');
       return;
     }
-    if (!mounted) return;
-    setState(() => _listening = true);
-    final availableLocales = await _speech.locales();
-    final arabicLocales = availableLocales
-        .where((locale) => locale.localeId.toLowerCase().startsWith('ar'))
-        .toList();
-    final iraqiLocale = arabicLocales.where(
-      (locale) => locale.localeId.toLowerCase() == 'ar_iq',
-    );
-    final selectedLocale = iraqiLocale.isNotEmpty
-        ? iraqiLocale.first.localeId
-        : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
-    await _speech.listen(
-      localeId: selectedLocale,
-      listenFor: const Duration(seconds: 15),
-      pauseFor: const Duration(seconds: 4),
-      onResult: (result) {
-        if (!mounted) return;
-        setState(() => _voiceText = result.recognizedWords);
-        if (result.finalResult) {
-          setState(() => _listening = false);
-          unawaited(_completeVoiceTurn(result.recognizedWords));
-        }
-      },
-    );
+
+    if (!mounted || !_voiceConversation) return;
+    setState(() {
+      _listening = true;
+      _voiceText = '';
+    });
+    _voiceTurnHandled = false;
+
+    try {
+      final availableLocales = await _speech.locales();
+      final arabicLocales = availableLocales
+          .where((locale) => locale.localeId.toLowerCase().startsWith('ar'))
+          .toList();
+      final iraqiLocale = arabicLocales.where(
+        (locale) => locale.localeId.toLowerCase().replaceAll('-', '_') == 'ar_iq',
+      );
+      final selectedLocale = iraqiLocale.isNotEmpty
+          ? iraqiLocale.first.localeId
+          : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
+
+      await _speech.listen(
+        localeId: selectedLocale,
+        listenFor: const Duration(seconds: 25),
+        pauseFor: const Duration(seconds: 5),
+        onResult: (result) {
+          if (!mounted) return;
+          setState(() => _voiceText = result.recognizedWords);
+          if (result.finalResult && !_voiceTurnHandled) {
+            _voiceTurnHandled = true;
+            setState(() => _listening = false);
+            unawaited(_completeVoiceTurn(result.recognizedWords));
+          }
+        },
+      );
+    } catch (_) {
+      _voiceConversation = false;
+      if (mounted) setState(() => _listening = false);
+      _message('صار خلل بفتح المايك. تأكد ماكو تطبيق ثاني يستخدمه وجرب مرة ثانية');
+    }
   }
 
   Future<void> _completeVoiceTurn(String question) async {
