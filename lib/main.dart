@@ -97,30 +97,6 @@ const iraqPlaces = <IraqPlace>[
   IraqPlace('السليمانية', 'السليمانية', LatLng(35.5613, 45.4300)),
 ];
 
-class _MapLegendItem extends StatelessWidget {
-  const _MapLegendItem({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
-            ),
-            const SizedBox(width: 7),
-            Text(label, style: const TextStyle(fontSize: 10)),
-          ],
-        ),
-      );
-}
-
 class MapHomePage extends StatefulWidget {
   const MapHomePage({
     required this.isDark,
@@ -471,8 +447,8 @@ class _MapHomePageState extends State<MapHomePage> {
           lineLayerId,
           mlg.LineLayerProperties(
             lineColor: borderColor,
-            lineWidth: ['interpolate', ['linear'], ['zoom'], 4.5, 1.0, 7, 1.8, 10, 2.4],
-            lineOpacity: 0.95,
+            lineWidth: ['interpolate', ['linear'], ['zoom'], 4.5, 1.2, 7, 2.0, 10, 2.7],
+            lineOpacity: 1.0,
             lineJoin: 'round',
           ),
           minzoom: 4.5,
@@ -1004,17 +980,17 @@ class _MapHomePageState extends State<MapHomePage> {
 
   String _maneuverText(String type, String modifier, String road) {
     final roadText = road.isEmpty ? 'الطريق' : 'باتجاه $road';
-    if (type == 'arrive') return 'وصلت إلى وجهتك';
-    if (type == 'depart') return 'يلا انطلق $roadText';
-    if (modifier.contains('left')) return 'بعد شوية خذ يسار $roadText';
-    if (modifier.contains('right')) return 'بعد شوية خذ يمين $roadText';
+    if (type == 'arrive') return 'وصلت لوجهتك، عاشت إيدك، وصلت بالسلامة';
+    if (type == 'depart') return 'يلا توكّل، واصل $roadText';
+    if (modifier.contains('left')) return 'بعد شوية لف يسار، $roadText';
+    if (modifier.contains('right')) return 'بعد شوية لف يمين، $roadText';
     if (modifier == 'uturn') return 'استدر وارجع بالاتجاه المعاكس';
     if (type == 'roundabout' || type == 'rotary') {
       return 'ادخل الدوار، $roadText';
     }
     if (type == 'merge') return 'اندَمج مع المسار $roadText';
     if (type == 'fork') return 'خذ التفرع $roadText';
-    if (type == 'new name' || type == 'continue') return 'كمّل دغري $roadText';
+    if (type == 'new name' || type == 'continue') return 'واصل سيده $roadText';
     return roadText;
   }
 
@@ -1281,8 +1257,10 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _listenForVoiceTurn() async {
     if (!_voiceConversation || !mounted) return;
-    // أوقف أي نطق سابق قبل فتح المايك حتى لا يتداخل صوت التطبيق مع الاستماع.
+    // أوقف النطق وجلسة الاستماع السابقة حتى لا يتداخل الصوتان.
     await _tts.stop();
+    await _speech.stop();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     final available = await _speech.initialize(
       onStatus: (status) {
         if ((status == 'notListening' || status == 'done') && mounted) {
@@ -1297,7 +1275,8 @@ class _MapHomePageState extends State<MapHomePage> {
     );
     if (!available) {
       _voiceConversation = false;
-      _message('خدمة تحويل الصوت إلى نص غير متاحة على هذا الجهاز');
+      if (mounted) setState(() => _listening = false);
+      _message('خدمة التعرّف على الكلام غير متاحة. تأكد من تثبيت خدمة Google وتفعيل العربية والميكروفون');
       return;
     }
     if (!mounted) return;
@@ -1501,55 +1480,6 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             ),
-            if (_routePoints.isNotEmpty)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 350,
-                child: Card(
-                  color: panelColor,
-                  elevation: 5,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          '${_formatRouteDistance(_routeDistanceMeters)}  •  ${_formatRouteDuration(_routeDurationSeconds)}',
-                          textDirection: TextDirection.rtl,
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(_nextInstruction, textDirection: TextDirection.rtl,
-                            style: TextStyle(color: textColor)),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _tracking ? _stopTracking : _startTracking,
-                                icon: Icon(_tracking ? Icons.pause : Icons.navigation),
-                                label: Text(_tracking ? 'إيقاف التتبع' : 'ابدأ تتبع السيارة'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filledTonal(
-                              tooltip: 'استمع للتوجيه',
-                              onPressed: () => _speak(_nextInstruction),
-                              icon: const Icon(Icons.volume_up),
-                            ),
-                          ],
-                        ),
-                        const Text(
-                          'المسافة محسوبة على المسار المتاح بالخريطة، والوقت تقديري وقد يتغير حسب الزحام وحالة الطريق.',
-                          textDirection: TextDirection.rtl,
-                          style: TextStyle(fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             Positioned(
               left: 10,
               right: 10,
@@ -1559,10 +1489,61 @@ class _MapHomePageState extends State<MapHomePage> {
                 elevation: 8,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+                  padding: const EdgeInsets.fromLTRB(9, 5, 9, 6),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (_routePoints.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF173B35) : const Color(0xFFEAF5F2),
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${_formatRouteDistance(_routeDistanceMeters)} • ${_formatRouteDuration(_routeDurationSeconds)}',
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                                    padding: EdgeInsets.zero,
+                                    tooltip: 'استمع للتوجيه',
+                                    onPressed: () => _speak(_nextInstruction),
+                                    icon: const Icon(Icons.volume_up, size: 18),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  FilledButton.tonal(
+                                    style: FilledButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      minimumSize: const Size(0, 26),
+                                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    ),
+                                    onPressed: _tracking ? _stopTracking : _startTracking,
+                                    child: Text(_tracking ? 'إيقاف التتبع' : 'ابدأ التتبع', style: const TextStyle(fontSize: 11)),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                _nextInstruction,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(color: textColor, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
                       Row(
                         children: [
                           Expanded(
@@ -1593,7 +1574,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                 hintText: 'إلى',
                                 prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0), size: 18),
                                 isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                                 filled: true,
                                 fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -1658,7 +1639,7 @@ class _MapHomePageState extends State<MapHomePage> {
                         ),
                       if (_recentDestinations.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 3),
+                          padding: const EdgeInsets.only(top: 1),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -1668,7 +1649,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                     child: Text(
                                       'الوجهات الأخيرة',
                                       textDirection: TextDirection.rtl,
-                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                   TextButton(
@@ -1678,7 +1659,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                 ],
                               ),
                               SizedBox(
-                                height: 32,
+                                height: 28,
                                 child: ListView(
                                   reverse: true,
                                   scrollDirection: Axis.horizontal,
