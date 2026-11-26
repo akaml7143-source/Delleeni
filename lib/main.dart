@@ -1391,21 +1391,12 @@ class _MapHomePageState extends State<MapHomePage> {
       return;
     }
 
-    String answer;
-    if (_routePoints.isEmpty) {
-      answer = 'حدد من وين تريد تنطلق ووين وجهتك، وبعدها أگدر أساعدك بالطريق.';
-    } else if (q.contains('باقي') || q.contains('مسافة') || q.contains('بعيد')) {
-      answer = 'مسافة الطريق المحسوبة ${_formatRouteDistance(_routeDistanceMeters)}، والوقت ${_formatRouteDuration(_routeDurationSeconds)}.';
-    } else if (q.contains('انعطف') || q.contains('وين') || q.contains('الطريق')) {
-      answer = _nextInstruction;
-    } else {
-      answer = await _askConversationalAssistant(
-        question,
-        routeContext: _routePoints.isEmpty
-            ? 'لا يوجد مسار نشط حالياً.'
-            : 'المسافة: ${_formatRouteDistance(_routeDistanceMeters)}، الوقت التقديري: ${_formatRouteDuration(_routeDurationSeconds)}، التوجيه القادم: $_nextInstruction',
-      );
-    }
+    final answer = await _askConversationalAssistant(
+      question,
+      routeContext: _routePoints.isEmpty
+          ? 'لا يوجد مسار نشط حالياً.'
+          : 'المسافة: ${_formatRouteDistance(_routeDistanceMeters)}، الوقت التقديري: ${_formatRouteDuration(_routeDurationSeconds)}، التوجيه القادم: $_nextInstruction',
+    );
     await _speak(answer);
   }
 
