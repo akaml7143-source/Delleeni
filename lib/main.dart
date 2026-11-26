@@ -1206,9 +1206,12 @@ class _MapHomePageState extends State<MapHomePage> {
     _safetyReminderTimer?.cancel();
     _safetyReminderIndex = 0;
     const reminders = <String>[
-      'أمانة، انتبه لطريقك وخلي تركيزك على القيادة.',
-      'تذكير من دلّيني: البس حزام الأمان، ولا تنشغل بالموبايل.',
+      'أمانة، انتبه لطريقك وخلي عينك على الشارع.',
+      'البس حزام الأمان، ولا تلزم الموبايل وإنت تسوق.',
       'حافظ على نفسك وعلى اللي وياك، وخلي مسافة أمان بينك وبين السيارة الجدامك.',
+      'تره السرعة ما تفيد، خفف وخلّيك مرتاح.',
+      'إذا تعبت، وقف بمكان آمن وخذلك استراحة، سلامتك أهم.',
+      'هسه انتبه للطريق، وبعدك شوية وتوصل بالسلامة.',
     ];
     _safetyReminderTimer = Timer.periodic(const Duration(minutes: 4), (_) {
       if (!_tracking || _speaking || !mounted) return;
