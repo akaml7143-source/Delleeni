@@ -1,0 +1,4 @@
+project_id = "pjigopgjunahinrytfon"
+
+[functions.delleeni-chat]
+verify_jwt = true
