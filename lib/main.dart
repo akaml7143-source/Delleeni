@@ -1451,29 +1451,6 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             Positioned(
-              top: 66,
-              left: 12,
-              child: Card(
-                color: panelColor,
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text('دليل ألوان الخريطة', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      SizedBox(height: 6),
-                      _MapLegendItem(color: Color(0xFF2E9D62), label: 'المناطق الخضراء'),
-                      _MapLegendItem(color: Color(0xFF2798D5), label: 'الأنهار والمياه'),
-                      _MapLegendItem(color: Color(0xFFE8B64A), label: 'الطرق الرئيسية'),
-                      _MapLegendItem(color: Color(0xFF9AA3AA), label: 'المناطق العمرانية'),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
               top: 10,
               left: 12,
               child: Card(
@@ -1528,7 +1505,7 @@ class _MapHomePageState extends State<MapHomePage> {
               Positioned(
                 left: 12,
                 right: 12,
-                bottom: 224,
+                bottom: 350,
                 child: Card(
                   color: panelColor,
                   elevation: 5,
@@ -1582,7 +1559,7 @@ class _MapHomePageState extends State<MapHomePage> {
                 elevation: 8,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1598,7 +1575,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                 hintText: 'من',
                                 prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0), size: 18),
                                 isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                                 filled: true,
                                 fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -1636,7 +1613,7 @@ class _MapHomePageState extends State<MapHomePage> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: Padding(
-                            padding: const EdgeInsets.only(bottom: 6, right: 8),
+                            padding: const EdgeInsets.only(bottom: 3, right: 6),
                             child: Text(
                               'انطلاق من الخريطة • ${_selectedMapOrigin!.latitude.toStringAsFixed(5)}, ${_selectedMapOrigin!.longitude.toStringAsFixed(5)}',
                               textDirection: TextDirection.rtl,
@@ -1647,14 +1624,22 @@ class _MapHomePageState extends State<MapHomePage> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            minimumSize: const Size(0, 30),
+                          ),
                           onPressed: () => setState(() =>
                               _selectingOriginFromMap = !_selectingOriginFromMap),
                           icon: Icon(_selectingOriginFromMap
                               ? Icons.touch_app
                               : Icons.trip_origin),
-                          label: Text(_selectingOriginFromMap
-                              ? 'اضغط مطولاً على الخريطة لتحديد الانطلاق...'
-                              : 'تحديد نقطة الانطلاق من الخريطة'),
+                          label: Text(
+                            _selectingOriginFromMap
+                                ? 'اضغط مطولاً على الخريطة لتحديد الانطلاق...'
+                                : 'تحديد نقطة الانطلاق من الخريطة',
+                            style: const TextStyle(fontSize: 11),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -1673,7 +1658,7 @@ class _MapHomePageState extends State<MapHomePage> {
                         ),
                       if (_recentDestinations.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.only(top: 3),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -1693,14 +1678,15 @@ class _MapHomePageState extends State<MapHomePage> {
                                 ],
                               ),
                               SizedBox(
-                                height: 38,
+                                height: 32,
                                 child: ListView(
                                   reverse: true,
                                   scrollDirection: Axis.horizontal,
                                   children: _recentDestinations.map((place) =>
                                     Padding(
-                                      padding: const EdgeInsetsDirectional.only(start: 6),
+                                      padding: const EdgeInsetsDirectional.only(start: 4),
                                       child: ActionChip(
+                                        visualDensity: VisualDensity.compact,
                                         avatar: const Icon(Icons.history, size: 16),
                                         label: Text(place.name),
                                         onPressed: () {
@@ -1729,7 +1715,7 @@ class _MapHomePageState extends State<MapHomePage> {
                             ),
                           ),
                         ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Expanded(
