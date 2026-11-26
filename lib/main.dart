@@ -145,6 +145,7 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
   bool _selectingOriginFromMap = false;
+  bool _showAdvancedSearchOptions = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
   final TextEditingController _toController = TextEditingController();
@@ -1622,6 +1623,31 @@ class _MapHomePageState extends State<MapHomePage> {
                           ),
                         ],
                       ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 0),
+                            minimumSize: const Size(0, 26),
+                          ),
+                          onPressed: () => setState(() =>
+                              _showAdvancedSearchOptions = !_showAdvancedSearchOptions),
+                          icon: Icon(
+                            _showAdvancedSearchOptions
+                                ? Icons.expand_less
+                                : Icons.tune,
+                            size: 17,
+                          ),
+                          label: Text(
+                            _showAdvancedSearchOptions
+                                ? 'إخفاء الخيارات'
+                                : 'خيارات إضافية وتحديد الانطلاق',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ),
+                      if (_showAdvancedSearchOptions) ...[
                       if (_selectedMapOrigin != null)
                         Align(
                           alignment: Alignment.centerRight,
@@ -1728,6 +1754,7 @@ class _MapHomePageState extends State<MapHomePage> {
                             ),
                           ),
                         ),
+                      ],
                       const SizedBox(height: 4),
                       Row(
                         children: [
