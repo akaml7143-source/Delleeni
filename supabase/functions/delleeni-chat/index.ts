@@ -26,10 +26,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const openAiKey = Deno.env.get("OPENAI_API_KEY");
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
 
-  if (!openAiKey) {
-    console.error("Configuration error: OPENAI_API_KEY is missing");
+  if (!geminiKey) {
+    console.error("Configuration error: GEMINI_API_KEY is missing");
     return jsonResponse({ error: "Assistant is not configured" }, 503);
   }
 
@@ -52,8 +52,8 @@ Deno.serve(async (req: Request) => {
       })
       .slice(-12)
       .map((m: Record<string, string>) => ({
-        role: m.role,
-        content: m.content.slice(0, 1500),
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content.slice(0, 1500) }],
       }));
 
     if (
@@ -70,28 +70,29 @@ Deno.serve(async (req: Request) => {
     const systemPrompt = `أنت المساعد الصوتي لتطبيق دلّيني للملاحة في العراق.
 تحدث بالعربية العراقية الطبيعية، ويمكنك استخدام تعابير جنوب العراق باعتدال مثل: هسه، شوية، واصل سيده، عاشت إيدك.
 أنت مساعد حواري ثنائي الاتجاه: أجب عن الأسئلة العامة، تابع سياق الحوار، اسأل سؤالاً توضيحياً عند الحاجة، ولا تكرر عبارات محفوظة.
-اجعل الردود الصوتية قصيرة وواضحة غالباً (جملة إلى ثلاث جمل) لأن المستخدم قد يكون يقود السيارة.
+اجعل الردود قصيرة وواضحة غالباً (جملة إلى ثلاث جمل) لتناسب الاستماع الصوتي.
 في إرشادات القيادة، أعطِ تعليمات مختصرة وآمنة، ولا تطلب من السائق النظر إلى الهاتف أو الكتابة أثناء القيادة.
 لا تدّعِ معرفة حركة المرور المباشرة أو الحوادث أو نقاط التفتيش أو حالة الطريق ما لم تكن البيانات متاحة صراحةً.
 لا تخترع معلومات عن المسار. سياق المسار الحالي من التطبيق: ${routeContext}
 إذا كان السؤال خارج الملاحة، أجب عنه بشكل عام وبصدق. إذا لم تعرف، قل ذلك بوضوح.`;
 
     const upstream = await fetch(
-      "https://api.openai.com/v1/chat/completions",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${openAiKey}`,
+          "x-goog-api-key": geminiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
-          temperature: 0.6,
-          max_tokens: 220,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...messages,
-          ],
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents: messages,
+          generationConfig: {
+            temperature: 0.6,
+            maxOutputTokens: 220,
+          },
         }),
       },
     );
@@ -109,10 +110,10 @@ Deno.serve(async (req: Request) => {
 
       // Diagnostic details are written to Supabase logs only.
       // Never log or return the API key.
-      console.error("OpenAI API request failed:", {
+      console.error("Gemini API request failed:", {
         status: upstream.status,
-        type: errorInfo.type ?? null,
-        code: errorInfo.code ?? null,
+        statusText: upstream.statusText,
+        code: errorInfo.status ?? errorInfo.code ?? null,
         message: errorInfo.message ?? null,
       });
 
@@ -123,10 +124,18 @@ Deno.serve(async (req: Request) => {
     }
 
     const result = await upstream.json();
-    const reply = result?.choices?.[0]?.message?.content?.trim();
+    const parts = result?.candidates?.[0]?.content?.parts;
+    const reply = Array.isArray(parts)
+      ? parts
+          .map((part: { text?: unknown }) =>
+            typeof part.text === "string" ? part.text : ""
+          )
+          .join("")
+          .trim()
+      : "";
 
-    if (typeof reply !== "string" || !reply) {
-      console.error("OpenAI returned an empty response");
+    if (!reply) {
+      console.error("Gemini returned an empty response or no text candidate");
       return jsonResponse({ error: "Empty assistant response" }, 502);
     }
 
