@@ -12,8 +12,8 @@ void main() {
       ),
     ));
     expect(find.text('دِلِّينِي'), findsOneWidget);
-    expect(find.text('وين تريد تروح؟'), findsOneWidget);
-    expect(find.text('من وين تنطلق؟ (الافتراضي موقعي)'), findsOneWidget);
+    expect(find.text('من'), findsOneWidget);
+    expect(find.text('إلى'), findsOneWidget);
     expect(find.text('اعرض الطريق'), findsOneWidget);
     expect(find.text('احچي ويا دلّيني'), findsOneWidget);
   });

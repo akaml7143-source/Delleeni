@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:maplibre/maplibre.dart' as ml hide Position;
@@ -96,6 +97,9 @@ const iraqPlaces = <IraqPlace>[
   IraqPlace('السليمانية', 'السليمانية', LatLng(35.5613, 45.4300)),
 ];
 
+const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
 class MapHomePage extends StatefulWidget {
   const MapHomePage({
     required this.isDark,
@@ -115,8 +119,36 @@ class MapHomePage extends StatefulWidget {
 class _MapHomePageState extends State<MapHomePage> {
   mlg.MapLibreMapController? _map;
   bool _mapStyleLoaded = false;
-  bool _is3d = false;
+  bool _is3d = true;
+  int _mapPaletteIndex = 0;
+  static const List<String> _mapPaletteIds = ['green', 'blue', 'gold', 'gray', 'pink'];
+  static const List<String> _mapPaletteNames = ['الأخضر', 'الأزرق', 'الذهبي', 'الرمادي', 'الوردي'];
+
+  String get _mapStyleUrl =>
+      'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/map_styles/${_mapPaletteIds[_mapPaletteIndex]}.json';
+
+  Future<void> _loadMapPalette() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt('map_palette_index') ?? 0;
+    if (!mounted) return;
+    setState(() => _mapPaletteIndex = saved.clamp(0, _mapPaletteIds.length - 1).toInt());
+  }
+
+  Future<void> _cycleMapPalette() async {
+    final next = (_mapPaletteIndex + 1) % _mapPaletteIds.length;
+    setState(() {
+      _mapStyleLoaded = false;
+      _map = null;
+      _mapPaletteIndex = next;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('map_palette_index', next);
+    if (mounted) {
+      _message('تم تغيير ألوان الخريطة إلى النمط ${_mapPaletteNames[next]}');
+    }
+  }
   bool _selectingOriginFromMap = false;
+  bool _showAdvancedSearchOptions = false;
   final TextEditingController _fromController =
       TextEditingController(text: 'موقعي الحالي');
   final TextEditingController _toController = TextEditingController();
@@ -131,7 +163,7 @@ class _MapHomePageState extends State<MapHomePage> {
   List<String> _instructions = [];
   List<RouteManeuver> _routeManeuvers = [];
   int _nextManeuverIndex = 0;
-  final Set<int> _announcedManeuvers = <int>{};
+  final Map<int, Set<int>> _announcedManeuverStages = <int, Set<int>>{};
   String _nextInstruction = 'حدد نقطة الانطلاق والوجهة';
   String _voiceText = '';
   double _routeDistanceMeters = 0;
@@ -144,6 +176,9 @@ class _MapHomePageState extends State<MapHomePage> {
   bool _listening = false;
   bool _speaking = false;
   bool _voiceConversation = false;
+  bool _speechInitialized = false;
+  bool _voiceTurnHandled = false;
+  final List<Map<String, String>> _voiceChatHistory = <Map<String, String>>[];
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _lastRerouteAt;
   bool _rerouting = false;
@@ -155,6 +190,7 @@ class _MapHomePageState extends State<MapHomePage> {
   String _nearbyCategoryFilter = 'الكل';
   String _nearbySearchQuery = '';
   final List<NearbyPlace> _recentDestinations = <NearbyPlace>[];
+  final Set<int> _announcedRoadAlertIds = <int>{};
 
   String _nearbyCategoryLabel(String category) {
     const labels = <String, String>{
@@ -164,6 +200,13 @@ class _MapHomePageState extends State<MapHomePage> {
       'food_court': 'ساحة طعام',
       'ice_cream': 'مثلجات',
       'hospital': 'مستشفى',
+      'fire_station': 'مركز إطفاء',
+      'ambulance_station': 'مركز إسعاف',
+      'construction': 'أعمال طريق',
+      'roadworks': 'أعمال طريق',
+      'traffic_calming': 'مطب تهدئة',
+      'pothole': 'حفرة بالطريق',
+      'damaged_road': 'طريق متضرر',
       'clinic': 'عيادة',
       'doctors': 'طبيب',
       'dentist': 'طبيب أسنان',
@@ -202,7 +245,9 @@ class _MapHomePageState extends State<MapHomePage> {
       case 'مطاعم ومقاهي':
         return ['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream', 'bakery'].contains(category);
       case 'صحة':
-        return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'].contains(category) || category == 'healthcare';
+        return ['hospital', 'clinic', 'doctors', 'pharmacy', 'dentist', 'fire_station', 'ambulance_station'].contains(category) || category == 'healthcare';
+      case 'سلامة الطرق':
+        return ['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(category);
       case 'تسوق':
         return place.category.isNotEmpty && !['restaurant', 'cafe', 'fast_food', 'hospital', 'clinic', 'pharmacy', 'fuel', 'bank', 'atm', 'school', 'police'].contains(category);
       case 'خدمات':
@@ -217,6 +262,7 @@ class _MapHomePageState extends State<MapHomePage> {
     super.initState();
     _loadFavoritePlaces();
     _loadRecentDestinations();
+    _loadMapPalette();
   }
 
   Future<void> _loadFavoritePlaces() async {
@@ -368,6 +414,80 @@ class _MapHomePageState extends State<MapHomePage> {
     _message('تم تحديد الوجهة على الخريطة • ${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}');
   }
 
+  Future<void> _addGovernorateBoundaries() async {
+    final controller = _map;
+    if (controller == null || !_mapStyleLoaded) return;
+
+    const sourceId = 'iraq-governorates-ar';
+    const lineLayerId = 'iraq-governorate-borders-ar';
+    const labelLayerId = 'iraq-governorate-labels-ar';
+    const geoJsonUrl =
+        'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/data/iraq_governorates.geojson';
+
+    const paletteColors = <String>[
+      '#176b45',
+      '#2563a6',
+      '#a47a20',
+      '#68727d',
+      '#b45b7a',
+    ];
+    final borderColor = paletteColors[_mapPaletteIndex.clamp(0, 4)];
+
+    try {
+      final sourceIds = await controller.getSourceIds();
+      if (!sourceIds.contains(sourceId)) {
+        await controller.addSource(
+          sourceId,
+          const mlg.GeojsonSourceProperties(
+            data: geoJsonUrl,
+            attribution: 'geoBoundaries · CC0 1.0 · Iraq ADM1 (18 governorates)',
+            maxzoom: 10,
+            tolerance: 0.25,
+          ),
+        );
+      }
+
+      final layerIds = await controller.getLayerIds();
+      if (!layerIds.contains(lineLayerId)) {
+        await controller.addLineLayer(
+          sourceId,
+          lineLayerId,
+          mlg.LineLayerProperties(
+            lineColor: borderColor,
+            lineWidth: ['interpolate', ['linear'], ['zoom'], 4.5, 1.2, 7, 2.0, 10, 2.7],
+            lineOpacity: 1.0,
+            lineJoin: 'round',
+          ),
+          minzoom: 4.5,
+        );
+      }
+
+      if (!layerIds.contains(labelLayerId)) {
+        await controller.addSymbolLayer(
+          sourceId,
+          labelLayerId,
+          mlg.SymbolLayerProperties(
+            textField: ['get', 'name_ar'],
+            textFont: ['Noto Sans Regular'],
+            textSize: ['interpolate', ['linear'], ['zoom'], 5, 9, 7, 11, 10, 13],
+            textMaxWidth: 8,
+            textAnchor: 'center',
+            textColor: borderColor,
+            textHaloColor: '#ffffff',
+            textHaloWidth: 1.5,
+            textHaloBlur: 0.3,
+            textPadding: 3,
+            textAllowOverlap: false,
+            textIgnorePlacement: false,
+          ),
+          minzoom: 5,
+        );
+      }
+    } catch (error) {
+      debugPrint('Governorate boundaries could not be added: $error');
+    }
+  }
+
   Future<void> _syncMapAnnotations() async {
     final map = _map;
     if (map == null || !_mapStyleLoaded || map.isDisposed) return;
@@ -409,7 +529,14 @@ class _MapHomePageState extends State<MapHomePage> {
         ));
       }
       for (final place in _nearbyPlaces) {
-        await map.addCircle(mlg.CircleOptions(geometry: mlg.LatLng(place.point.latitude, place.point.longitude), circleColor: '#E9A23B', circleRadius: 5, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5));
+        final roadAlert = ['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(place.category);
+        final emergency = ['hospital', 'clinic', 'pharmacy', 'fire_station', 'ambulance_station', 'police'].contains(place.category);
+        await map.addCircle(mlg.CircleOptions(
+          geometry: mlg.LatLng(place.point.latitude, place.point.longitude),
+          circleColor: roadAlert ? '#DC2626' : emergency ? '#2563EB' : '#E9A23B',
+          circleRadius: roadAlert ? 7 : 5,
+          circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5,
+        ));
       }
       if (_userPoint != null) {
         await map.addCircle(mlg.CircleOptions(
@@ -433,11 +560,14 @@ class _MapHomePageState extends State<MapHomePage> {
     try {
       const radius = 6000;
       final query = '[out:json][timeout:30];('
-          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|food_court|ice_cream|hospital|clinic|doctors|dentist|pharmacy|fuel|bank|atm|school|police|post_office|library|parking|marketplace|car_wash|charging_station|bus_station"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["amenity"~"restaurant|cafe|fast_food|food_court|ice_cream|hospital|clinic|doctors|dentist|pharmacy|fuel|bank|atm|school|police|fire_station|ambulance_station|post_office|library|parking|marketplace|car_wash|charging_station|bus_station"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["shop"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["healthcare"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["tourism"~"hotel|guest_house|museum"];'
           'nwr(around:$radius,${center.latitude},${center.longitude})["name"]["leisure"~"park|playground"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["highway"~"construction|roadworks|traffic_calming"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["traffic_calming"];'
+          'nwr(around:$radius,${center.latitude},${center.longitude})["hazard"~"pothole|damaged_road"];'
           ');out center 120;';
       // نجرب أكثر من خادم عام؛ قد يتوقف أحد خوادم Overpass مؤقتاً.
       http.Response? response;
@@ -475,9 +605,14 @@ class _MapHomePageState extends State<MapHomePage> {
         final lat = e['lat'] ?? (e['center'] as Map?)?['lat'];
         final lon = e['lon'] ?? (e['center'] as Map?)?['lon'];
         if (lat is! num || lon is! num) continue;
-        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? 'مكان').toString();
+        final category = (tags['amenity'] ?? tags['shop'] ?? tags['healthcare'] ?? tags['tourism'] ?? tags['leisure'] ?? (tags.containsKey('traffic_calming') ? 'traffic_calming' : null) ?? tags['hazard'] ?? tags['highway'] ?? 'مكان').toString();
         final address = [tags['addr:street'], tags['addr:suburb'], tags['addr:city']].where((v) => v != null && v.toString().isNotEmpty).join('، ');
-        places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? 'مكان غير مسمى').toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
+        final fallbackName = ['construction', 'roadworks'].contains(category)
+            ? 'أعمال طريق'
+            : category == 'traffic_calming' ? 'مطب تهدئة'
+            : category == 'pothole' ? 'حفرة بالطريق'
+            : category == 'damaged_road' ? 'طريق متضرر' : 'مكان غير مسمى';
+        places.add(NearbyPlace(id: (e['id'] as num).toInt(), name: (tags['name:ar'] ?? tags['name'] ?? tags['brand'] ?? fallbackName).toString(), category: category, point: LatLng(lat.toDouble(), lon.toDouble()), address: address));
       }
       places.sort((a,b) => Geolocator.distanceBetween(center.latitude, center.longitude, a.point.latitude, a.point.longitude).compareTo(Geolocator.distanceBetween(center.latitude, center.longitude, b.point.latitude, b.point.longitude)));
       if (!mounted) return;
@@ -587,7 +722,7 @@ class _MapHomePageState extends State<MapHomePage> {
                     height: 46,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
-                      children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات']
+                      children: ['الكل', 'مطاعم ومقاهي', 'صحة', 'تسوق', 'خدمات', 'سلامة الطرق']
                           .map((category) => Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 4),
                                 child: ChoiceChip(
@@ -672,7 +807,7 @@ class _MapHomePageState extends State<MapHomePage> {
                   const Padding(
                     padding: EdgeInsets.all(12),
                     child: Text(
-                      'المصدر OpenStreetMap؛ قد تكون بعض الأماكن ناقصة أو غير محدثة. زر الإبلاغ يفتح صفحة OSM لتكتب الملاحظة بنفسك.',
+                      'المصدر OpenStreetMap؛ قد تكون بعض الأماكن وأعمال الطرق ناقصة أو غير محدثة، وليست بيانات مرور مباشرة. زر الإبلاغ يفتح صفحة OSM لتكتب الملاحظة بنفسك.',
                       textDirection: TextDirection.rtl,
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11),
@@ -804,7 +939,7 @@ class _MapHomePageState extends State<MapHomePage> {
         _instructions = steps;
         _routeManeuvers = maneuvers;
         _nextManeuverIndex = maneuvers.length > 1 ? 1 : 0;
-        _announcedManeuvers.clear();
+        _announcedManeuverStages.clear();
         _nextInstruction =
             steps.isEmpty ? 'اتبع الخط الأزرق على الخريطة' : steps.first;
         _routeDistanceMeters = (route['distance'] as num).toDouble();
@@ -835,19 +970,34 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
 
+  String _formatRouteDistance(double meters) {
+    if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(2)} كم';
+    return '${meters.round()} متر';
+  }
+
+  String _formatRouteDuration(double seconds) {
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes دقيقة تقريباً';
+    final hours = minutes ~/ 60;
+    final remaining = minutes % 60;
+    return remaining == 0
+        ? '$hours ساعة تقريباً'
+        : '$hours ساعة و$remaining دقيقة تقريباً';
+  }
+
   String _maneuverText(String type, String modifier, String road) {
     final roadText = road.isEmpty ? 'الطريق' : 'باتجاه $road';
-    if (type == 'arrive') return 'وصلت إلى وجهتك';
-    if (type == 'depart') return 'يلا انطلق $roadText';
-    if (modifier.contains('left')) return 'بعد شوية خذ يسار $roadText';
-    if (modifier.contains('right')) return 'بعد شوية خذ يمين $roadText';
+    if (type == 'arrive') return 'وصلت لوجهتك، عاشت إيدك، وصلت بالسلامة';
+    if (type == 'depart') return 'يلا توكّل، واصل $roadText';
+    if (modifier.contains('left')) return 'بعد شوية لف يسار، $roadText';
+    if (modifier.contains('right')) return 'بعد شوية لف يمين، $roadText';
     if (modifier == 'uturn') return 'استدر وارجع بالاتجاه المعاكس';
     if (type == 'roundabout' || type == 'rotary') {
       return 'ادخل الدوار، $roadText';
     }
     if (type == 'merge') return 'اندَمج مع المسار $roadText';
     if (type == 'fork') return 'خذ التفرع $roadText';
-    if (type == 'new name' || type == 'continue') return 'كمّل دغري $roadText';
+    if (type == 'new name' || type == 'continue') return 'واصل سيده $roadText';
     return roadText;
   }
 
@@ -864,6 +1014,8 @@ class _MapHomePageState extends State<MapHomePage> {
     await _positionSubscription?.cancel();
     setState(() => _tracking = true);
     _startSafetyReminders();
+    _announcedRoadAlertIds.clear();
+    if (_nearbyPlaces.isEmpty) unawaited(_loadNearbyPlaces(showSheet: false));
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -879,6 +1031,7 @@ class _MapHomePageState extends State<MapHomePage> {
         }
       });
       unawaited(_announceUpcomingManeuver(point));
+      unawaited(_announceNearbyRoadAlerts(point));
       unawaited(_checkRouteDeviation(point));
       unawaited(_syncMapAnnotations());
       final camera = await _map?.queryCameraPosition();
@@ -902,20 +1055,31 @@ class _MapHomePageState extends State<MapHomePage> {
         _nextManeuverIndex >= _routeManeuvers.length || _speaking) {
       return;
     }
-    final maneuver = _routeManeuvers[_nextManeuverIndex];
+    final index = _nextManeuverIndex;
+    final maneuver = _routeManeuvers[index];
     final meters = const Distance().as(LengthUnit.Meter, current, maneuver.point);
-    if (meters <= 220 && !_announcedManeuvers.contains(_nextManeuverIndex)) {
-      _announcedManeuvers.add(_nextManeuverIndex);
+    final stages = _announcedManeuverStages.putIfAbsent(index, () => <int>{});
+
+    // تعليمات متدرجة باللهجة العراقية: تنبيه مبكر، ثم اقتراب، ثم انعطاف.
+    if (meters <= 500 && meters > 180 && !stages.contains(0)) {
+      stages.add(0);
       if (mounted) setState(() => _nextInstruction = maneuver.instruction);
-      final distance = (meters / 50).round() * 50;
-      await _speak(meters <= 70
-          ? maneuver.instruction
-          : 'بعد حوالي ${distance} متر، ${maneuver.instruction}');
+      await _speak('استعد، بعد حوالي 500 متر، ${maneuver.instruction}');
+    } else if (meters <= 180 && meters > 45 && !stages.contains(1)) {
+      stages.add(1);
+      if (mounted) setState(() => _nextInstruction = maneuver.instruction);
+      await _speak('باقي حوالي 150 متر، ${maneuver.instruction}');
+    } else if (meters <= 45 && !stages.contains(2)) {
+      stages.add(2);
+      if (mounted) setState(() => _nextInstruction = maneuver.instruction);
+      await _speak('هسه، ${maneuver.instruction}');
     }
-    if (meters <= 28) {
+
+    if (meters <= 25 && stages.contains(2)) {
       _nextManeuverIndex++;
       if (_nextManeuverIndex < _routeManeuvers.length && mounted) {
-        setState(() => _nextInstruction = _routeManeuvers[_nextManeuverIndex].instruction);
+        setState(() => _nextInstruction =
+            _routeManeuvers[_nextManeuverIndex].instruction);
       } else if (mounted) {
         setState(() => _nextInstruction = 'وصلت إلى وجهتك');
       }
@@ -952,6 +1116,7 @@ class _MapHomePageState extends State<MapHomePage> {
 
     _lastRerouteAt = now;
     _rerouting = true;
+    await _speak('ابتعدت عن المسار المحدد، أحاول أحسب لك طريق جديد');
     try {
       final uri = Uri.parse(
         'https://router.project-osrm.org/route/v1/driving/'
@@ -999,7 +1164,7 @@ class _MapHomePageState extends State<MapHomePage> {
         _instructions = updatedInstructions;
         _routeManeuvers = updatedManeuvers;
         _nextManeuverIndex = updatedManeuvers.length > 1 ? 1 : 0;
-        _announcedManeuvers.clear();
+        _announcedManeuverStages.clear();
         _nextInstruction = updatedInstructions.isEmpty
             ? 'اتبع المسار الجديد على الخريطة'
             : updatedInstructions.first;
@@ -1015,13 +1180,42 @@ class _MapHomePageState extends State<MapHomePage> {
     }
   }
 
+  Future<void> _announceNearbyRoadAlerts(LatLng current) async {
+    if (!_tracking || _speaking) return;
+    for (final place in _nearbyPlaces) {
+      if (!['construction', 'roadworks', 'traffic_calming', 'pothole', 'damaged_road'].contains(place.category) ||
+          _announcedRoadAlertIds.contains(place.id)) {
+        continue;
+      }
+      final meters = Geolocator.distanceBetween(
+        current.latitude, current.longitude,
+        place.point.latitude, place.point.longitude,
+      );
+      if (meters <= 350) {
+        _announcedRoadAlertIds.add(place.id);
+        final message = place.category == 'traffic_calming'
+            ? 'انتبه، قدامك مطب تهدئة قريب.'
+            : place.category == 'pothole'
+                ? 'انتبه، قدامك بلاغ عن حفرة بالطريق.'
+                : place.category == 'damaged_road'
+                    ? 'تنبيه، أكو بلاغ عن طريق متضرر قدامك.'
+                    : 'تنبيه طريق: قدامك أعمال طريق، خفف السرعة وانتبه.';
+        await _speak(message);
+        break;
+      }
+    }
+  }
+
   void _startSafetyReminders() {
     _safetyReminderTimer?.cancel();
     _safetyReminderIndex = 0;
     const reminders = <String>[
-      'أمانة، انتبه لطريقك وخلي تركيزك على القيادة.',
-      'تذكير من دلّيني: البس حزام الأمان، ولا تنشغل بالموبايل.',
+      'أمانة، انتبه لطريقك وخلي عينك على الشارع.',
+      'البس حزام الأمان، ولا تلزم الموبايل وإنت تسوق.',
       'حافظ على نفسك وعلى اللي وياك، وخلي مسافة أمان بينك وبين السيارة الجدامك.',
+      'تره السرعة ما تفيد، خفف وخلّيك مرتاح.',
+      'إذا تعبت، وقف بمكان آمن وخذلك استراحة، سلامتك أهم.',
+      'هسه انتبه للطريق، وبعدك شوية وتوصل بالسلامة.',
     ];
     _safetyReminderTimer = Timer.periodic(const Duration(minutes: 4), (_) {
       if (!_tracking || _speaking || !mounted) return;
@@ -1043,8 +1237,14 @@ class _MapHomePageState extends State<MapHomePage> {
     if (_speaking) return;
     _speaking = true;
     try {
-      try { await _tts.setLanguage('ar-IQ'); } catch (_) { await _tts.setLanguage('ar'); }
-      await _tts.setSpeechRate(0.43);
+      await _tts.awaitSpeakCompletion(true);
+      try {
+        await _tts.setLanguage('ar-IQ');
+      } catch (_) {
+        await _tts.setLanguage('ar');
+      }
+      await _tts.setVolume(1.0);
+      await _tts.setSpeechRate(0.44);
       await _tts.setPitch(1.02);
       await _tts.speak(text);
     } catch (_) {
@@ -1067,52 +1267,92 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _listenForVoiceTurn() async {
     if (!_voiceConversation || !mounted) return;
-    final available = await _speech.initialize(
-      onStatus: (status) {
-        if (status == 'notListening' && mounted) {
-          setState(() => _listening = false);
-        }
-      },
-      onError: (_) {
-        _voiceConversation = false;
-        if (mounted) setState(() => _listening = false);
-        _message('ما كدرت أسمع الصوت. تأكد من إذن المايكروفون');
-      },
-    );
-    if (!available) {
+
+    // لا نعيد تهيئة خدمة التعرف بكل جولة؛ نوقف الجلسة السابقة فقط.
+    await _tts.stop();
+    await _speech.stop();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!_voiceConversation || !mounted) return;
+
+    if (!_speechInitialized) {
+      try {
+        _speechInitialized = await _speech.initialize(
+          onStatus: (status) {
+            if (!mounted) return;
+            if (status == 'notListening' || status == 'done') {
+              setState(() => _listening = false);
+              // إذا انتهت مهلة الاستماع بلا نتيجة نهائية، لا نترك المحادثة معلّقة.
+              if (_voiceConversation && !_voiceTurnHandled) {
+                _voiceTurnHandled = true;
+                unawaited(_completeVoiceTurn(_voiceText));
+              }
+            }
+          },
+          onError: (_) {
+            _voiceConversation = false;
+            if (mounted) setState(() => _listening = false);
+            _message('ما كدرت أسمعك. تأكد من إذن المايك وخدمة التعرّف على الكلام واللغة العربية بالجهاز');
+          },
+        );
+      } catch (_) {
+        _speechInitialized = false;
+      }
+    }
+
+    if (!_speechInitialized) {
       _voiceConversation = false;
-      _message('خدمة تحويل الصوت إلى نص غير متاحة على هذا الجهاز');
+      if (mounted) setState(() => _listening = false);
+      _message('خدمة الاستماع مو متاحة. فعّل المايك وثبّت خدمة التعرّف على الكلام من إعدادات الجهاز');
       return;
     }
-    if (!mounted) return;
-    setState(() => _listening = true);
-    final availableLocales = await _speech.locales();
-    final arabicLocales = availableLocales
-        .where((locale) => locale.localeId.toLowerCase().startsWith('ar'))
-        .toList();
-    final iraqiLocale = arabicLocales.where(
-      (locale) => locale.localeId.toLowerCase() == 'ar_iq',
-    );
-    final selectedLocale = iraqiLocale.isNotEmpty
-        ? iraqiLocale.first.localeId
-        : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
-    await _speech.listen(
-      localeId: selectedLocale,
-      listenFor: const Duration(seconds: 7),
-      onResult: (result) {
-        if (!mounted) return;
-        setState(() => _voiceText = result.recognizedWords);
-        if (result.finalResult) {
-          setState(() => _listening = false);
-          unawaited(_completeVoiceTurn(result.recognizedWords));
-        }
-      },
-    );
+
+    if (!mounted || !_voiceConversation) return;
+    setState(() {
+      _listening = true;
+      _voiceText = '';
+    });
+    _voiceTurnHandled = false;
+
+    try {
+      final availableLocales = await _speech.locales();
+      final arabicLocales = availableLocales
+          .where((locale) => locale.localeId.toLowerCase().startsWith('ar'))
+          .toList();
+      final iraqiLocale = arabicLocales.where(
+        (locale) => locale.localeId.toLowerCase().replaceAll('-', '_') == 'ar_iq',
+      );
+      final selectedLocale = iraqiLocale.isNotEmpty
+          ? iraqiLocale.first.localeId
+          : (arabicLocales.isNotEmpty ? arabicLocales.first.localeId : null);
+
+      await _speech.listen(
+        localeId: selectedLocale,
+        listenFor: const Duration(seconds: 25),
+        pauseFor: const Duration(seconds: 5),
+        onResult: (result) {
+          if (!mounted) return;
+          setState(() => _voiceText = result.recognizedWords);
+          if (result.finalResult && !_voiceTurnHandled) {
+            _voiceTurnHandled = true;
+            setState(() => _listening = false);
+            unawaited(_completeVoiceTurn(result.recognizedWords));
+          }
+        },
+      );
+    } catch (_) {
+      _voiceConversation = false;
+      if (mounted) setState(() => _listening = false);
+      _message('صار خلل بفتح المايك. تأكد ماكو تطبيق ثاني يستخدمه وجرب مرة ثانية');
+    }
   }
 
   Future<void> _completeVoiceTurn(String question) async {
-    await _answerRouteQuestion(question);
     await _speech.stop();
+    if (question.trim().isEmpty) {
+      await _speak('ما وصلني كلام واضح، احچي مرة ثانية وبصوت واضح.');
+    } else {
+      await _answerRouteQuestion(question);
+    }
     if (!_voiceConversation || !mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (_voiceConversation && mounted) {
@@ -1151,17 +1391,71 @@ class _MapHomePageState extends State<MapHomePage> {
       return;
     }
 
-    String answer;
-    if (_routePoints.isEmpty) {
-      answer = 'حدد من وين تريد تنطلق ووين وجهتك، وبعدها أگدر أساعدك بالطريق.';
-    } else if (q.contains('باقي') || q.contains('مسافة') || q.contains('بعيد')) {
-      answer = 'المسافة الكلية تقريباً ${(_routeDistanceMeters / 1000).toStringAsFixed(1)} كيلومتر، والوقت التقديري ${(_routeDurationSeconds / 60).round()} دقيقة.';
-    } else if (q.contains('انعطف') || q.contains('وين') || q.contains('الطريق')) {
-      answer = _nextInstruction;
-    } else {
-      answer = 'حالياً أگدر أجاوبك عن المسافة والوقت وتعليمات الطريق. المساعد الذكي الحواري الكامل يحتاج ربط خادم آمن، وهذا بعده مو مفعّل.';
-    }
+    final answer = await _askConversationalAssistant(
+      question,
+      routeContext: _routePoints.isEmpty
+          ? 'لا يوجد مسار نشط حالياً.'
+          : 'المسافة: ${_formatRouteDistance(_routeDistanceMeters)}، الوقت التقديري: ${_formatRouteDuration(_routeDurationSeconds)}، التوجيه القادم: $_nextInstruction',
+    );
     await _speak(answer);
+  }
+
+  Future<String> _askConversationalAssistant(
+    String question, {
+    required String routeContext,
+  }) async {
+    // مساعد محلي مجاني: لا يرسل كلام المستخدم أو موقعه إلى أي خادم.
+    // يعتمد على قواعد وكلمات مفتاحية، وليس نموذج ذكاء اصطناعي توليدي.
+    final q = question.trim().toLowerCase();
+
+    if (q.isEmpty) return 'ما وصلني سؤالك، احچيلي شتريد تعرف.';
+    if (q.contains('مرحبا') || q.contains('هلا') || q.contains('السلام عليكم') ||
+        q.contains('شلونك') || q.contains('شخبارك')) {
+      return 'هلا بيك، آني دلّيني. حاضر أساعدك بالطريق وبمعلومات التطبيق.';
+    }
+    if (q.contains('شكرا') || q.contains('مشكور') || q.contains('تسلم')) {
+      return 'تدلّل، بالخدمة. الله يحفظك بطريقك.';
+    }
+    if (q.contains('اسمك') || q.contains('منو انت') || q.contains('شنو انت')) {
+      return 'آني دلّيني، مساعدك داخل تطبيق الملاحة. أگدر أساعدك بالتوجيه وبعض الأسئلة الشائعة.';
+    }
+    if (q.contains('المسار') || q.contains('الطريق') || q.contains('وين وصلنا')) {
+      if (_routePoints.isEmpty) {
+        return 'ماكو مسار محسوب هسه. حدّد نقطة الانطلاق والوجهة واضغط اعرض الطريق.';
+      }
+      return 'المسار الحالي: ${routeContext}';
+    }
+    if (q.contains('كم باقي') || q.contains('شكد باقي') ||
+        q.contains('المسافة') || q.contains('كم كيلو') || q.contains('بعيد')) {
+      if (_routePoints.isEmpty) return 'بعد ما حسبنا الطريق. حدّد وجهتك أولاً.';
+      return 'المسافة المحسوبة ${_formatRouteDistance(_routeDistanceMeters)}، والوقت التقديري ${_formatRouteDuration(_routeDurationSeconds)}.';
+    }
+    if (q.contains('انعطف') || q.contains('التوجيه القادم') ||
+        q.contains('شنو أسوي') || q.contains('وين أروح')) {
+      return _routePoints.isEmpty
+          ? 'حدد وجهتك أولاً حتى أعطيك تعليمات الطريق.'
+          : _nextInstruction;
+    }
+    if (q.contains('زحمة') || q.contains('ازدحام') || q.contains('مرور')) {
+      return 'ما عندي حالياً بيانات حركة مرور مباشرة، لذلك ما أگدر أأكد وجود زحام. اتبع اللوحات وخفف السرعة.';
+    }
+    if (q.contains('سيطرة') || q.contains('تفتيش') || q.contains('نقطة تفتيش')) {
+      return 'ما عندي بيانات مؤكدة ومباشرة عن السيطرات. انتبه للطريق واتبع تعليمات الجهات المختصة.';
+    }
+    if (q.contains('طقس') || q.contains('جو') || q.contains('مطر')) {
+      return 'ما متصل حالياً بخدمة طقس مباشرة. افحص حالة الجو من مصدر موثوق قبل السفر.';
+    }
+    if (q.contains('حزام') || q.contains('سلامة') || q.contains('أمان')) {
+      return 'سلامتك أولاً: اربط حزام الأمان، وخلي مسافة آمنة، ولا تستخدم الموبايل أثناء القيادة.';
+    }
+    if (q.contains('حادث') || q.contains('طوارئ') || q.contains('إسعاف')) {
+      return 'إذا أكو حالة طارئة، وقف بمكان آمن إذا تگدر واتصل بخدمات الطوارئ المحلية. لا تستخدم الهاتف أثناء قيادة المركبة.';
+    }
+    if (q.contains('شلون أستخدم') || q.contains('طريقة الاستخدام') ||
+        q.contains('ساعدني')) {
+      return 'اكتب أو قل اسم الوجهة، حدّد الانطلاق إذا تحتاج، وبعدها اضغط اعرض الطريق. وللمحادثة اضغط احچي ويا دلّيني.';
+    }
+    return 'أگدر أساعدك بالمسار والمسافة والتوجيه القادم وتنبيهات السلامة. أما الأسئلة العامة المفتوحة فما عندي حالياً نموذج ذكاء اصطناعي متصل بيها، لأن هذا الوضع يعمل محلياً ومجاناً.';
   }
 
   @override
@@ -1178,14 +1472,13 @@ class _MapHomePageState extends State<MapHomePage> {
             if (widget.showMap)
               Positioned.fill(
                 child: mlg.MapLibreMap(
+                  key: ValueKey('map-palette-$_mapPaletteIndex'),
                   initialCameraPosition: mlg.CameraPosition(
                     target: const mlg.LatLng(33.1, 43.8),
-                    zoom: 5.5,
+                    zoom: 4.8,
                     tilt: _is3d ? 55 : 0,
                   ),
-                  styleString: isDark
-                      ? 'https://tiles.openfreemap.org/styles/dark'
-                      : 'https://tiles.openfreemap.org/styles/liberty',
+                  styleString: _mapStyleUrl,
                   compassEnabled: true,
                   logoEnabled: false,
                   trackCameraPosition: true,
@@ -1194,6 +1487,7 @@ class _MapHomePageState extends State<MapHomePage> {
                       _selectMapDestination(coordinates),
                   onStyleLoadedCallback: () {
                     _mapStyleLoaded = true;
+                    unawaited(_addGovernorateBoundaries());
                     unawaited(_syncMapAnnotations());
                   },
                 ),
@@ -1201,6 +1495,33 @@ class _MapHomePageState extends State<MapHomePage> {
             else
               const Positioned.fill(
                 child: ColoredBox(color: Color(0xFFE7ECEB)),
+              ),
+            if (_tracking && _userPoint != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: _headingDegrees * math.pi / 180,
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFF087E70), width: 2),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 3)),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.navigation,
+                          size: 34,
+                          color: Color(0xFF087E70),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             Positioned(
               top: 10,
@@ -1219,6 +1540,11 @@ class _MapHomePageState extends State<MapHomePage> {
                       tooltip: isDark ? 'الوضع النهاري' : 'الوضع الليلي',
                       onPressed: widget.onToggleTheme,
                       icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                    ),
+                    IconButton(
+                      tooltip: 'تغيير ألوان الخريطة: ${_mapPaletteNames[_mapPaletteIndex]}',
+                      onPressed: _cycleMapPalette,
+                      icon: const Icon(Icons.palette_outlined),
                     ),
                     IconButton(
                       tooltip: _is3d ? 'إيقاف العرض الثلاثي' : 'عرض ثلاثي الأبعاد',
@@ -1248,80 +1574,6 @@ class _MapHomePageState extends State<MapHomePage> {
                 ),
               ),
             ),
-            if (_tracking)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: MediaQuery.of(context).size.height * 0.43,
-                child: IgnorePointer(
-                  child: Center(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.22), blurRadius: 10)],
-                        border: Border.all(color: const Color(0xFF087E70), width: 2),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(7),
-                        child: Transform.rotate(
-                          angle: _headingDegrees * 3.141592653589793 / 180,
-                          child: const Icon(Icons.navigation, size: 30, color: Color(0xFF087E70)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (_routePoints.isNotEmpty)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 224,
-                child: Card(
-                  color: panelColor,
-                  elevation: 5,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          '${(_routeDistanceMeters / 1000).toStringAsFixed(1)} كم  •  ${(_routeDurationSeconds / 60).round()} دقيقة تقريباً',
-                          textDirection: TextDirection.rtl,
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(_nextInstruction, textDirection: TextDirection.rtl,
-                            style: TextStyle(color: textColor)),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _tracking ? _stopTracking : _startTracking,
-                                icon: Icon(_tracking ? Icons.pause : Icons.navigation),
-                                label: Text(_tracking ? 'إيقاف التتبع' : 'ابدأ تتبع السيارة'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filledTonal(
-                              tooltip: 'استمع للتوجيه',
-                              onPressed: () => _speak(_nextInstruction),
-                              icon: const Icon(Icons.volume_up),
-                            ),
-                          ],
-                        ),
-                        const Text(
-                          'المسار تجريبي وقد لا يعكس كل الطرق أو الإغلاقات؛ انتبه للطريق واللوحات.',
-                          textDirection: TextDirection.rtl,
-                          style: TextStyle(fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             Positioned(
               left: 10,
               right: 10,
@@ -1331,28 +1583,137 @@ class _MapHomePageState extends State<MapHomePage> {
                 elevation: 8,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(9, 5, 9, 6),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
-                        controller: _fromController,
-                        textDirection: TextDirection.rtl,
-                        onChanged: (_) => setState(() => _selectedMapOrigin = null),
-                        decoration: InputDecoration(
-                          hintText: 'من وين تنطلق؟ (الافتراضي موقعي)',
-                          prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0)),
-                          isDense: true,
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                      if (_routePoints.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF173B35) : const Color(0xFFEAF5F2),
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${_formatRouteDistance(_routeDistanceMeters)} • ${_formatRouteDuration(_routeDurationSeconds)}',
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                                    padding: EdgeInsets.zero,
+                                    tooltip: 'استمع للتوجيه',
+                                    onPressed: () => _speak(_nextInstruction),
+                                    icon: const Icon(Icons.volume_up, size: 18),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  FilledButton.tonal(
+                                    style: FilledButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      minimumSize: const Size(0, 26),
+                                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    ),
+                                    onPressed: _tracking ? _stopTracking : _startTracking,
+                                    child: Text(_tracking ? 'إيقاف التتبع' : 'ابدأ التتبع', style: const TextStyle(fontSize: 11)),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                _nextInstruction,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textDirection: TextDirection.rtl,
+                                style: TextStyle(color: textColor, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _fromController,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setState(() => _selectedMapOrigin = null),
+                              decoration: InputDecoration(
+                                hintText: 'من',
+                                prefixIcon: const Icon(Icons.trip_origin, color: Color(0xFF08AFA0), size: 18),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: TextField(
+                              controller: _toController,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setState(() => _selectedNearby = null),
+                              decoration: InputDecoration(
+                                hintText: 'إلى',
+                                prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0), size: 18),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'استخدم موقعي كنقطة انطلاق',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _useMyLocationAsOrigin,
+                            icon: const Icon(Icons.my_location, size: 20),
+                          ),
+                        ],
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 0),
+                            minimumSize: const Size(0, 26),
+                          ),
+                          onPressed: () => setState(() =>
+                              _showAdvancedSearchOptions = !_showAdvancedSearchOptions),
+                          icon: Icon(
+                            _showAdvancedSearchOptions
+                                ? Icons.expand_less
+                                : Icons.tune,
+                            size: 17,
+                          ),
+                          label: Text(
+                            _showAdvancedSearchOptions
+                                ? 'إخفاء الخيارات'
+                                : 'خيارات إضافية وتحديد الانطلاق',
+                            style: const TextStyle(fontSize: 11),
+                          ),
                         ),
                       ),
+                      if (_showAdvancedSearchOptions) ...[
                       if (_selectedMapOrigin != null)
                         Align(
                           alignment: Alignment.centerRight,
                           child: Padding(
-                            padding: const EdgeInsets.only(bottom: 6, right: 8),
+                            padding: const EdgeInsets.only(bottom: 3, right: 6),
                             child: Text(
                               'انطلاق من الخريطة • ${_selectedMapOrigin!.latitude.toStringAsFixed(5)}, ${_selectedMapOrigin!.longitude.toStringAsFixed(5)}',
                               textDirection: TextDirection.rtl,
@@ -1363,42 +1724,25 @@ class _MapHomePageState extends State<MapHomePage> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            minimumSize: const Size(0, 30),
+                          ),
                           onPressed: () => setState(() =>
                               _selectingOriginFromMap = !_selectingOriginFromMap),
                           icon: Icon(_selectingOriginFromMap
                               ? Icons.touch_app
                               : Icons.trip_origin),
-                          label: Text(_selectingOriginFromMap
-                              ? 'اضغط مطولاً على الخريطة لتحديد الانطلاق...'
-                              : 'تحديد نقطة الانطلاق من الخريطة'),
+                          label: Text(
+                            _selectingOriginFromMap
+                                ? 'اضغط مطولاً على الخريطة لتحديد الانطلاق...'
+                                : 'تحديد نقطة الانطلاق من الخريطة',
+                            style: const TextStyle(fontSize: 11),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _toController,
-                              textDirection: TextDirection.rtl,
-                              onChanged: (_) => setState(() => _selectedNearby = null),
-                              decoration: InputDecoration(
-                                hintText: 'وين تريد تروح؟',
-                                prefixIcon: const Icon(Icons.search, color: Color(0xFF08AFA0)),
-                                filled: true,
-                                fillColor: isDark ? const Color(0xFF172321) : const Color(0xFFF1F7F7),
-                                isDense: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton.filledTonal(
-                            tooltip: 'موقعي الحالي كنقطة انطلاق',
-                            onPressed: _useMyLocationAsOrigin,
-                            icon: const Icon(Icons.my_location),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 6),
                       if (_selectedNearby != null &&
                           _selectedNearby!.category == 'وجهة محددة')
                         Align(
@@ -1414,7 +1758,7 @@ class _MapHomePageState extends State<MapHomePage> {
                         ),
                       if (_recentDestinations.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.only(top: 1),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -1424,7 +1768,7 @@ class _MapHomePageState extends State<MapHomePage> {
                                     child: Text(
                                       'الوجهات الأخيرة',
                                       textDirection: TextDirection.rtl,
-                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                   TextButton(
@@ -1434,14 +1778,15 @@ class _MapHomePageState extends State<MapHomePage> {
                                 ],
                               ),
                               SizedBox(
-                                height: 38,
+                                height: 28,
                                 child: ListView(
                                   reverse: true,
                                   scrollDirection: Axis.horizontal,
                                   children: _recentDestinations.map((place) =>
                                     Padding(
-                                      padding: const EdgeInsetsDirectional.only(start: 6),
+                                      padding: const EdgeInsetsDirectional.only(start: 4),
                                       child: ActionChip(
+                                        visualDensity: VisualDensity.compact,
                                         avatar: const Icon(Icons.history, size: 16),
                                         label: Text(place.name),
                                         onPressed: () {
@@ -1470,7 +1815,8 @@ class _MapHomePageState extends State<MapHomePage> {
                             ),
                           ),
                         ),
-                      const SizedBox(height: 8),
+                      ],
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Expanded(
@@ -1518,7 +1864,7 @@ class OfflineMapsPage extends StatefulWidget {
 }
 
 class _OfflineMapsPageState extends State<OfflineMapsPage> {
-  static const _styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+  String _styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
 
   static const _governorates = <_Governorate>[
     _Governorate('بغداد', 44.12523, 44.59857, 33.23018, 33.49524),
@@ -1556,6 +1902,12 @@ class _OfflineMapsPageState extends State<OfflineMapsPage> {
 
   Future<void> _initOfflineManager() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      const paletteIds = ['green', 'blue', 'gold', 'gray', 'pink'];
+      final savedPalette = (prefs.getInt('map_palette_index') ?? 0)
+          .clamp(0, paletteIds.length - 1)
+          .toInt();
+      _styleUrl = 'https://raw.githubusercontent.com/akaml7143-source/Delleeni/feature/iraq-3d-map/assets/map_styles/${paletteIds[savedPalette]}.json';
       final manager = await ml.OfflineManager.createInstance();
       final regions = await manager.listOfflineRegions();
       if (!mounted) {
